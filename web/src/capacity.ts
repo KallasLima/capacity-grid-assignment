@@ -13,12 +13,21 @@ export type Capacity = {
   total: number
   offset: number
   limit: number
+  summary?: CapacitySummary
+}
+export type CapacitySummary = {
+  people: number
+  overCapacityPeople: number
+  allocatedHours: number
+  availableHours: number
 }
 export type Query = {
   from: string
   to: string
   offset: number
   search?: string
+  status?: 'all' | 'over'
+  sort?: 'name' | 'overload'
 }
 export type CanonicalPerson = Pick<Person, 'id' | 'name' | 'weeklyHours'>
 

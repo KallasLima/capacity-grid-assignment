@@ -13,17 +13,21 @@ export function CapacityEditor({
   save,
   onEditing,
   onReconcile,
+  saveLabel = 'Save',
+  successLabel = 'Saved',
 }: {
   person: Person
   busy: boolean
   save: (id: number, hours: number, expectedHours: number) => Promise<void>
   onEditing: (id: number | null) => void
   onReconcile: (id: number) => void
+  saveLabel?: string
+  successLabel?: string
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
+  const [savedHours, setSavedHours] = useState<number | null>(null)
   const [conflict, setConflict] = useState<CanonicalPerson | null>(null)
   const expectedHours = useRef(person.weeklyHours)
   const hoursInput = useRef<HTMLInputElement>(null)
@@ -51,7 +55,7 @@ export function CapacityEditor({
       await save(person.id, value, expectedHours.current)
       unsuccessfulSave.current = false
       close()
-      setSaved(true)
+      setSavedHours(value)
     } catch (failure) {
       // A transport failure can happen after the server commits the update.
       unsuccessfulSave.current = true
@@ -80,7 +84,7 @@ export function CapacityEditor({
             setDraft(String(person.weeklyHours))
             setEditing(true)
             onEditing(person.id)
-            setSaved(false)
+            setSavedHours(null)
             setError('')
             setConflict(null)
             expectedHours.current = person.weeklyHours
@@ -92,9 +96,9 @@ export function CapacityEditor({
           </span>
           <span className="edit-hint">Edit</span>
         </button>
-        {saved && (
+        {successLabel && savedHours === person.weeklyHours && (
           <span className="saved-note" role="status">
-            Saved
+            {successLabel}
           </span>
         )}
       </div>
@@ -137,7 +141,7 @@ export function CapacityEditor({
       />
       <div className="editor-actions">
         <button className="save-button" disabled={busy} type="submit">
-          {busy ? 'Saving…' : conflict ? 'Save my draft' : 'Save'}
+          {busy ? 'Saving…' : conflict ? 'Save my draft' : saveLabel}
         </button>
         <button
           className="text-button"

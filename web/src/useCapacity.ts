@@ -5,7 +5,47 @@ import {
   type CanonicalPerson,
   type Capacity,
   type Query,
+  type Person,
+  type CapacitySummary,
 } from './capacity'
+
+function changedSummary(
+  summary: CapacitySummary | undefined,
+  before: Person,
+  weeklyHours: number,
+  status: string,
+) {
+  if (!summary) return undefined
+  const wasOver = before.allocatedHours.some(
+    (value) => value > before.weeklyHours,
+  )
+  const nowOver = before.allocatedHours.some((value) => value > weeklyHours)
+  const previouslyIncluded = status !== 'over' || wasOver
+  const nowIncluded = status !== 'over' || nowOver
+  const allocated = before.allocatedHours.reduce((sum, value) => sum + value, 0)
+  const oldAvailable = before.allocatedHours.reduce(
+    (sum, value) => sum + Math.max(0, before.weeklyHours - value),
+    0,
+  )
+  const newAvailable = before.allocatedHours.reduce(
+    (sum, value) => sum + Math.max(0, weeklyHours - value),
+    0,
+  )
+  return {
+    people: summary.people + Number(nowIncluded) - Number(previouslyIncluded),
+    overCapacityPeople:
+      summary.overCapacityPeople +
+      Number(nowIncluded && nowOver) -
+      Number(previouslyIncluded && wasOver),
+    allocatedHours:
+      summary.allocatedHours +
+      (Number(nowIncluded) - Number(previouslyIncluded)) * allocated,
+    availableHours:
+      summary.availableHours +
+      (nowIncluded ? newAvailable : 0) -
+      (previouslyIncluded ? oldAvailable : 0),
+  }
+}
 
 type Snapshot = {
   key: string
@@ -16,7 +56,9 @@ type Snapshot = {
 
 export function useCapacity(query: Query) {
   const search = query.search?.trim() ?? ''
-  const key = `${query.from}/${query.to}/${query.offset}/${search}`
+  const status = query.status ?? 'all'
+  const sort = query.sort ?? 'name'
+  const key = `${query.from}/${query.to}/${query.offset}/${search}/${status}/${sort}`
   const [revision, setRevision] = useState(0)
   const [snapshot, setSnapshot] = useState<Snapshot>({
     key: '',
@@ -45,21 +87,26 @@ export function useCapacity(query: Query) {
       limit: '50',
     })
     if (search) params.set('search', search)
+    if (status !== 'all') params.set('status', status)
+    if (sort !== 'name') params.set('sort', sort)
     fetch(`/api/capacity?${params}`, { signal: controller.signal })
       .then(readResponse<Capacity>)
       .then((data) => {
         if (disposed || sequence !== request.current) return
         // Only reconcile edits confirmed after this request began. Later requests
         // remain authoritative, including changes made by another manager.
+        let summary = data.summary
         const people = data.people.map((person) => {
           const saved = savedHours.current.get(person.id)
-          return saved && saved.version > versionAtStart
-            ? { ...person, weeklyHours: saved.hours }
-            : person
+          if (saved && saved.version > versionAtStart) {
+            summary = changedSummary(summary, person, saved.hours, status)
+            return { ...person, weeklyHours: saved.hours }
+          }
+          return person
         })
         setSnapshot({
           key,
-          data: { ...data, people },
+          data: { ...data, people, summary },
           loading: false,
           error: null,
         })
@@ -79,32 +126,53 @@ export function useCapacity(query: Query) {
       controller.abort()
       window.clearTimeout(timeout)
     }
-  }, [key, query.from, query.to, query.offset, search, revision])
+  }, [key, query.from, query.to, query.offset, search, status, sort, revision])
 
-  const acceptPerson = useCallback((person: CanonicalPerson) => {
-    savedHours.current.set(person.id, {
-      hours: person.weeklyHours,
-      version: ++mutationVersion.current,
-    })
-    setSnapshot((current) =>
-      current.data
-        ? {
-            ...current,
-            data: {
-              ...current.data,
-              people: current.data.people.map((row) =>
-                row.id === person.id
-                  ? {
-                      ...row,
-                      name: person.name,
-                      weeklyHours: person.weeklyHours,
-                    }
-                  : row,
-              ),
-            },
-          }
-        : current,
-    )
+  const acceptPerson = useCallback(
+    (person: CanonicalPerson) => {
+      savedHours.current.set(person.id, {
+        hours: person.weeklyHours,
+        version: ++mutationVersion.current,
+      })
+      setSnapshot((current) => {
+        if (!current.data) return current
+        const before = current.data.people.find((row) => row.id === person.id)
+        return {
+          ...current,
+          data: {
+            ...current.data,
+            summary: before
+              ? changedSummary(
+                  current.data.summary,
+                  before,
+                  person.weeklyHours,
+                  status,
+                )
+              : current.data.summary,
+            people: current.data.people.map((row) =>
+              row.id === person.id
+                ? {
+                    ...row,
+                    name: person.name,
+                    weeklyHours: person.weeklyHours,
+                  }
+                : row,
+            ),
+          },
+        }
+      })
+    },
+    [status],
+  )
+
+  const reload = useCallback(() => {
+    setSnapshot((current) => ({
+      ...current,
+      data: null,
+      loading: true,
+      error: null,
+    }))
+    setRevision((value) => value + 1)
   }, [])
 
   const savePerson = useCallback(
@@ -120,6 +188,7 @@ export function useCapacity(query: Query) {
           signal: controller.signal,
         }).then(readResponse<CanonicalPerson>)
         acceptPerson(person)
+        if (status === 'over' || sort === 'overload') reload()
       } catch (error) {
         if (error instanceof CapacityConflictError)
           acceptPerson(error.currentPerson)
@@ -137,19 +206,8 @@ export function useCapacity(query: Query) {
         setSavingId(null)
       }
     },
-    [acceptPerson],
+    [acceptPerson, reload, status, sort],
   )
-
-  const reload = useCallback(() => {
-    // Clear stale values synchronously, including after an uncertain write.
-    setSnapshot((current) => ({
-      ...current,
-      data: null,
-      loading: true,
-      error: null,
-    }))
-    setRevision((value) => value + 1)
-  }, [])
 
   return {
     data: snapshot.key === key ? snapshot.data : null,

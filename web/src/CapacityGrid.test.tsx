@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CapacityGrid } from './CapacityGrid'
@@ -47,6 +48,129 @@ function deferred<T>() {
 }
 
 describe('CapacityGrid', () => {
+  it('clears the Drafted confirmation when a staged change is removed or returned to its saved value', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => json(capacity()))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Ana Ferreira',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Plan capacity' }))
+    const stage = async (value: string) => {
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Edit weekly capacity for Ana Ferreira',
+        }),
+      )
+      fireEvent.change(
+        screen.getByRole('spinbutton', {
+          name: 'Weekly hours for Ana Ferreira',
+        }),
+        { target: { value } },
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Stage change' }))
+      await waitFor(() => expect(screen.queryByRole('spinbutton')).toBeNull())
+    }
+
+    await stage('50')
+    expect(screen.getByText('Drafted')).toBeTruthy()
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove change for Ana Ferreira',
+      }),
+    )
+    expect(screen.queryByText('Drafted')).toBeNull()
+    expect(
+      screen.getAllByRole('cell', {
+        name: /Ana Ferreira, week of .*40 hours capacity/,
+      }),
+    ).toHaveLength(3)
+
+    await stage('50')
+    expect(screen.getByText('Drafted')).toBeTruthy()
+    await stage('40')
+    expect(screen.queryByText('Drafted')).toBeNull()
+    expect(
+      screen.queryByRole('button', {
+        name: 'Remove change for Ana Ferreira',
+      }),
+    ).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the server summary for the entire matching roster rather than the visible page', async () => {
+    const roster = capacity()
+    roster.total = 120
+    roster.summary = {
+      people: 120,
+      overCapacityPeople: 17,
+      allocatedHours: 12345,
+      availableHours: 6789,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(json(roster)),
+    )
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Ana Ferreira',
+    })
+
+    const summary = within(
+      screen.getByLabelText('Saved summary of all matching people'),
+    )
+    for (const value of ['120', '17', '12,345', '6,789'])
+      expect(summary.getByText(value)).toBeTruthy()
+    expect(screen.getByText('1–1 of 120')).toBeTruthy()
+  })
+
+  it('requests roster-wide priority filters and restarts pagination when either changes', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const request = new URL(String(input), 'http://localhost')
+      const page = capacity()
+      page.total = 120
+      page.offset = Number(request.searchParams.get('offset'))
+      return json(page)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    const loaded = () =>
+      screen.findByRole('button', {
+        name: 'Edit weekly capacity for Ana Ferreira',
+      })
+    const requestAt = (index: number) =>
+      new URL(String(fetchMock.mock.calls[index][0]), 'http://localhost')
+        .searchParams
+    await loaded()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next people' }))
+    await loaded()
+    expect(requestAt(1).get('offset')).toBe('50')
+
+    const filter = screen.getByRole('button', { name: 'Over capacity only' })
+    fireEvent.click(filter)
+    await loaded()
+    expect(requestAt(2).get('status')).toBe('over')
+    expect(requestAt(2).get('offset')).toBe('0')
+    expect(filter.getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next people' }))
+    await loaded()
+    expect(requestAt(3).get('offset')).toBe('50')
+    expect(requestAt(3).get('status')).toBe('over')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort people' }), {
+      target: { value: 'overload' },
+    })
+    await loaded()
+    expect(requestAt(4).get('sort')).toBe('overload')
+    expect(requestAt(4).get('status')).toBe('over')
+    expect(requestAt(4).get('offset')).toBe('0')
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+  })
+
   it('retains a failed save draft, then updates every visible week and overload count on retry', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

@@ -583,6 +583,10 @@ thead .capacity-column > span {
   white-space: nowrap;
   border-radius: 3px;
 }
+.person-details-button:disabled {
+  opacity: 1;
+  cursor: default;
+}
 .person-details-button:hover:not(:disabled) {
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -1395,4 +1399,140 @@ tbody tr:last-child th {
   font-size: 10px;
   font-weight: 550;
   color: #6d567a;
+}
+
+.priority-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding: 11px 17px;
+  background: #fdfbfe;
+}
+.priority-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #d8cddd;
+  background: #fff;
+  color: #6b4e76;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.priority-toggle.active {
+  background: #fff0e5;
+  color: #8e4424;
+  border-color: #d69b78;
+}
+.priority-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c27347;
+}
+.sort-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #6e5878;
+  font-size: 11px;
+}
+.sort-control select {
+  border: 1px solid #d8cddd;
+  border-radius: 6px;
+  background: #fff;
+  color: #4d335b;
+  padding: 5px 25px 5px 8px;
+  font: inherit;
+}
+.sort-control select:focus-visible {
+  outline: 2px solid #aa81ca;
+  outline-offset: 2px;
+}
+.priority-scope {
+  margin-left: auto;
+  font-size: 10px;
+  color: #796882;
+}
+@media (max-width: 680px) {
+  .priority-controls {
+    gap: 9px 12px;
+    padding: 11px 12px;
+  }
+  .priority-scope {
+    width: 100%;
+    margin: 0;
+    font-size: 9px;
+  }
+  .sort-control {
+    margin-left: auto;
+    font-size: 10px;
+    gap: 5px;
+  }
+  .sort-control select {
+    max-width: 132px;
+  }
+  .priority-toggle {
+    font-size: 10px;
+    padding: 6px 8px;
+  }
+}
+
+.heading-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 15px;
+}
+.heading-tools .legend {
+  margin: 0;
+}
+.plan-start-button {
+  min-height: 35px;
+  white-space: nowrap;
+}
+.scenario-row .capacity-column {
+  background: #f2e9fb;
+}
+.scenario-row .capacity-button {
+  color: #663e83;
+}
+.scenario-row .person-column {
+  box-shadow: inset 3px 0 #a77dc2;
+}
+.grid-panel:focus-visible {
+  outline: 3px solid #aa81ca;
+  outline-offset: 3px;
+}
+@media (max-width: 900px) {
+  .heading-tools {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+    gap: 12px;
+  }
+}
+@media (max-width: 680px) {
+  .workspace-heading {
+    position: relative;
+    padding-bottom: 38px;
+  }
+  .heading-tools {
+    align-items: flex-end;
+    gap: 12px;
+  }
+  .heading-tools .legend {
+    position: absolute;
+    bottom: 3px;
+    left: 0;
+  }
+  .plan-start-button {
+    min-height: 34px;
+    padding: 8px 10px;
+    font-size: 10px;
+  }
+  .summary-context {
+    line-height: 1.5;
+  }
 }
