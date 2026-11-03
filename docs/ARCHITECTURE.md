@@ -8,6 +8,7 @@ flowchart LR
     UI[React and TypeScript browser UI] -->|same-origin /api requests| Vite[Vite development proxy]
     Vite -->|HTTP| API[Go HTTP handlers]
     API -->|pgx connection pool and transactions| DB[(PostgreSQL)]
+    UI -->|draft backups and explicit recovery| Local[(Browser local storage)]
 ```
 
 ## Source map
@@ -18,6 +19,8 @@ flowchart LR
 | [web/src/useCapacity.ts](../web/src/useCapacity.ts) | Server snapshots, request cancellation, individual saves, reconciliation |
 | [web/src/CapacityEditor.tsx](../web/src/CapacityEditor.tsx) | Local input draft, validation, conflict choice, keyboard recovery |
 | [web/src/useCapacityPlan.ts](../web/src/useCapacityPlan.ts) | Browser-local scenario drafts and atomic apply lifecycle |
+| [web/src/planStorage.ts](../web/src/planStorage.ts) | Versioned draft validation, expiry, per-plan backups, and recovery ownership |
+| [web/src/PlanRecovery.tsx](../web/src/PlanRecovery.tsx) | Explicit restore/discard choice and recovery/storage feedback |
 | [web/src/CapacityPlanPanel.tsx](../web/src/CapacityPlanPanel.tsx) | Proposed changes and before/after impact review |
 | [web/src/AllocationCell.tsx](../web/src/AllocationCell.tsx) | Allocation ratio, visual meter, and overload exception |
 | [web/src/AllocationDetails.tsx](../web/src/AllocationDetails.tsx) | Read-only weekly project breakdown in a native dialog |
@@ -61,15 +64,39 @@ reconcile with the server rather than assuming the old value remains authoritati
 
 ## Previewing a scenario
 
-Staging changes only browser memory. Drafts retain each person's original expected
-capacity across restaging and roster pages. Projected rows use proposed limits;
-the saved roster summary continues to describe the server baseline.
+Staging changes the preview without writing capacity to the server. Drafts retain
+each person's original expected capacity across restaging and roster pages.
+Projected rows use proposed limits; the saved roster summary continues to describe
+the server baseline.
+
+Starting a plan preserves its search, status, order, and page. Those controls continue
+to use saved capacities, so draft edits do not silently remove or reorder people.
+Dates remain locked to the plan's range. The allocation drawer stays available and
+separates the saved weekly limit from any staged limit, including zero.
 
 Apply sends one batch of 1–100 changes. PostgreSQL locks the affected rows in stable
 ID order, checks every expected value, and commits all updates together. Conflicts
 apply nothing and require another explicit review. An unconfirmed apply freezes
 draft edits/removal so an identical retry can safely confirm the desired values.
-Closing refreshes canonical data. Drafts are neither persisted nor shared.
+Closing refreshes canonical data.
+
+## Recovering a local draft
+
+The hook also backs up nonempty drafts through `planStorage.ts`. Versioned local-storage
+records validate the full query and draft payload, expire 24 hours after their last
+save, and use separate IDs for independent plans. They contain no server-side draft
+or shared-editing model.
+
+Recovery is an explicit UI choice. Before restoring, the hook reads canonical
+capacities through the existing allocation endpoint in bounded batches. Ordinary
+drafts retain proposals and refresh expected values; a changed baseline requires
+review before apply. The original query context is restored alongside the plan.
+
+An in-flight apply is backed up as uncertain before its PATCH begins. Recovery keeps
+that original payload unchanged so retry can confirm a potentially committed write.
+Restoring forks a new plan ID and marks only the source revision consumed, protecting
+an unrelated or duplicated tab's backup. Storage failures produce a warning while
+the in-memory workflow remains available. Drafts are browser-local, not collaborative.
 
 ## Late responses and boundaries
 

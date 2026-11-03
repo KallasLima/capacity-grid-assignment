@@ -13,7 +13,13 @@
   preserve intent and reconcile with the server. Obsolete responses are ignored.
 - The optional scenario previews recurring limits, not assignment redistribution.
   Atomic apply avoids partially saving a plan when one starting value conflicts.
-  Plans stay in memory; uncertain applies freeze draft edits until retry or refresh.
+  Filters and ordering use saved capacities during planning so proposed limits do
+  not move people out of the manager's working context. Project details distinguish
+  saved and draft limits; dates stay fixed to keep impact comparisons coherent.
+- Browser-local draft backups expire 24 hours after their last save. Restoring is
+  explicit and checks current capacities before apply; changed baselines require
+  review. An uncertain apply keeps its original payload for a safe retry. Per-plan
+  records isolate tabs; storage failures warn while leaving the open plan usable.
 
 ## What did you notice that looked wrong?
 

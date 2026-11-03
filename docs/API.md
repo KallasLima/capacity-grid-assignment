@@ -66,11 +66,19 @@ distinct records with identical values. See [DECISIONS.md](../DECISIONS.md) for 
 ## Capacity scenarios
 
 Choose **Plan capacity**, edit recurring weekly limits, and **Stage change**. Staging
-only updates the in-memory preview; it sends no write request. The scenario shows
+updates the preview and local backup; it sends no capacity write request. The scenario shows
 before/after limits and overloaded person-weeks for the planned people in the selected
 range. Restaging retains each person's original expected value. Returning to that
 value removes the no-op change. Plans hold up to 100 people, can span roster pages,
-and remain local to this browser view. Leaving with drafts prompts a browser warning.
+and preserve the current search, status, sort, and page when planning begins.
+Search, priority controls, and pagination remain available. They use saved capacities;
+draft limits change preview rows and impact, not roster membership or ranking.
+Dates, presets, and reset stay locked to keep the plan's allocation horizon stable.
+Leaving with drafts prompts a browser warning.
+
+Project details remain available during planning. The drawer labels the saved weekly
+capacity separately from a staged limit, including a draft of zero hours. Its project
+allocations remain saved data.
 
 **Apply plan** sends one atomic request:
 
@@ -94,8 +102,31 @@ An identical retry succeeds when the proposed values are already stored, which
 confirms a write whose response was lost. After an unconfirmed apply, the UI freezes
 staging and removal, retains the draft and warning, and offers retry or **Close and
 refresh**. **Discard plan** also refreshes saved values. Applying, discarding, or
-removing changes is disabled while an inline editor is open. Plans have no durable
-storage or shared-editing mechanism.
+removing changes is disabled while an inline editor is open.
+
+### Browser-local recovery
+
+Draft backups use versioned, validated records in local storage and expire 24 hours
+after their last save. They include the plan's range, search, filters, order, page,
+proposals, expected capacities, and unresolved-apply state. They belong to this browser
+and site; there is no server-side draft store or cross-browser collaboration.
+
+After refresh or reopening, choose **Restore draft** or **Discard saved draft**.
+Restoring first reads each person's current capacity through the existing allocation
+endpoint, then restores the query context. This read-only step sends no PATCH. Ordinary
+drafts use the latest starting values, remove proposals already saved, and require
+**Apply reviewed plan** when baselines changed. The fixed assignment input lets the
+stored allocation arrays continue to describe the selected horizon.
+
+Before sending an apply, its backup is marked uncertain. If the tab closes or the
+response is lost, restoration preserves the original proposals and expected values
+unchanged for an identical retry; staging and removal stay frozen until the outcome
+is resolved. Confirming or discarding a plan closes that plan's recovery path.
+
+Records have separate plan IDs. Restoring forks a new record and consumes the source
+revision without deleting another open tab's backup. Expired or malformed records
+are rejected. If storage is unavailable, a visible warning explains that the open
+plan remains usable but recovery cannot be relied on.
 
 ## Allocation breakdown
 
@@ -120,10 +151,11 @@ docker compose exec -T web npm test
 docker compose exec -T web npm run build
 ```
 
-The current suite has 17 Go tests and 26 frontend tests. The Go query and mutation
-tests use temporary PostgreSQL tables inside rolled-back transactions and preserve
-the seeded roster. Coverage includes roster-wide summary and priority semantics,
-atomic batch conflicts and retries, draft preservation, and obsolete responses.
+The Go query and mutation tests use temporary PostgreSQL tables inside rolled-back
+transactions and preserve the seeded roster. Frontend tests exercise the editor and
+scenario state transitions. Coverage includes roster-wide summary and priority
+semantics, atomic batch conflicts and retries, draft preservation, and obsolete
+responses.
 
 The current priority query was also checked against independently calculated seed
 arithmetic: 75,585 cells across 500 people, plus 31,314 cells in an isolated synthetic
@@ -153,6 +185,11 @@ The grid should preview both without changing saved values in a second tab. Appl
 once, then reload the second tab to check persistence. If one starting value changes
 in the other tab before applying, the entire batch should conflict without partially
 applying the other change.
+
+To inspect recovery, stage a proposal and refresh, then choose **Restore draft**.
+The original range and filters return after current capacities are checked. Change
+the baseline in another tab before restoring to exercise explicit review. A failed
+recovery keeps the saved draft available to retry or discard.
 
 Vite is patched to 8.2.4. The original Compose, Dockerfile, Makefile, schema, and seed
 are unchanged. For local-only access, use a separate uncommitted Compose override that

@@ -16,7 +16,13 @@ supplied Docker Compose environment.
 The optional **Plan capacity** workflow previews recurring-limit changes across people
 before saving. One atomic apply keeps a plan from being partly saved when someone
 else changes a starting value. This changes capacity limits; it does not rebalance
-project assignments. Plans are local to the open browser view.
+project assignments. Planning preserves your search, overload filter, order, and page;
+these continue to use saved capacities while rows preview draft limits.
+
+Drafts are backed up in this browser for 24 hours after their last save. After a refresh
+or closed tab, **Restore draft** rechecks current capacities before you review and
+apply; it never saves a change automatically. Recovery is local to this browser and
+site, with a warning if browser storage is unavailable.
 
 ## Screenshots
 
@@ -25,7 +31,7 @@ The six-week grid shows saved allocation and capacity, with overloads emphasized
 ![Six-week capacity grid showing allocated hours, recurring limits, and highlighted overloads](docs/images/capacity-desktop.png)
 
 <details>
-<summary>Scenario preview and mobile layout</summary>
+<summary>Scenario preview, mobile layout, and draft recovery</summary>
 
 Staged recurring-capacity changes remain a preview until the plan is applied.
 
@@ -34,6 +40,10 @@ Staged recurring-capacity changes remain a preview until the plan is applied.
 The mobile view keeps one selected week readable alongside each person's capacity.
 
 <img src="docs/images/capacity-plan-mobile.png" alt="Mobile scenario preview and selected-week capacity grid" width="320">
+
+After refreshing, recovery offers an explicit choice before restoring the saved plan.
+
+<img src="docs/images/capacity-recovery.png" alt="Saved capacity draft with Restore and Discard actions on mobile" width="320">
 
 </details>
 
@@ -67,7 +77,12 @@ uncommitted Compose override. This local scaffold has no authentication.
    saving either. Save in the first, then submit a different value in the second.
 3. Choose **Plan capacity**, stage limits for two people, and inspect the preview.
    Saved values remain unchanged until **Apply plan** succeeds; reload another tab
-   to check persistence. Discarding a draft reloads current saved values.
+   to check persistence. Search, priority controls, paging, and project details remain
+   available; dates stay locked to the plan's range. The drawer separates saved capacity
+   from a staged limit. Discarding a draft reloads current saved values.
+4. Stage a change and refresh. Choose **Restore draft** or **Discard saved draft**.
+   Recovery checks the latest capacities; changed starting values require review
+   before applying.
 
 ## Verify
 
@@ -80,9 +95,10 @@ docker compose exec -T web npm test
 docker compose exec -T web npm run build
 ```
 
-The current suites contain **17 Go tests and 26 frontend tests**. PostgreSQL fixtures
-run inside rolled-back transactions. Browser checks cover persistence, failures,
-conflicts, lost responses, keyboard recovery, mobile navigation, and scenarios.
+The suites contain **17 Go tests and 47 frontend tests**. PostgreSQL fixtures run
+inside rolled-back transactions. Frontend tests cover drafts, recovery, conflicts, and obsolete
+responses. Browser checks cover persistence, failures, lost responses, keyboard
+recovery, mobile navigation, and scenarios.
 
 Independent arithmetic matched 75,585 seed cells and 31,314 cells in an isolated
 3,000-person / 757,170-assignment fixture. Sample 105-week requests took 1.28–1.30 s
