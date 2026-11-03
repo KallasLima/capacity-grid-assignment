@@ -107,10 +107,9 @@ much easier when the notes are honest about what you didn't get to.
 ## Implemented behavior
 
 The capacity view includes week navigation, date-range selection, roster search and
-pagination, inline weekly-capacity editing, project breakdowns, and loading and recovery
-states. Search
-finds people across the roster rather than only the visible page. Capacity changes
-apply to every week for that person.
+pagination, overload prioritization, inline weekly-capacity editing, project breakdowns,
+and a capacity scenario planner. Search and overload prioritization work across the
+matching roster. Capacity changes apply to every week for that person.
 The initial six-week view runs from December 29, 2025 through February 8, 2026.
 Range presets cover 3, 6, or 12 weeks; the mobile view keeps one selected week readable.
 
@@ -123,6 +122,22 @@ is 106 weeks and the maximum page is 100 people; the UI requests 50 at a time.
 Add `search=Dee` to filter names using a case-insensitive substring. Search is trimmed,
 accepts up to 100 Unicode characters, and treats `%`, `_`, and `\` as literal characters.
 Filtering happens before pagination, and `total` reports the matching roster count.
+
+Add `status=all|over` (default `all`) to include everyone or only people whose
+allocation exceeds capacity in at least one selected week. Add `sort=name|overload`
+(default `name`) to sort by name or highest single-week overload, descending. Ties
+use name and ID for stable pagination. Both controls reset the UI to the first page.
+The response's `summary` covers the entire eligible roster after search and status
+filtering, across every selected week:
+
+```json
+{"people":120,"overCapacityPeople":17,"allocatedHours":12345,"availableHours":6789}
+```
+
+`availableHours` sums positive remaining capacity per person-week, so one person's
+overload does not cancel another person's available hours. The summary is separate
+from the visible page's overload count. Saving while a priority filter or sort is
+active refreshes the page so membership and ordering remain correct.
 
 `PATCH /api/people/{id}` requires both values:
 
@@ -141,6 +156,40 @@ is already stored returns 200, allowing confirmation after a lost response.
 Invalid input returns 400, a missing person returns 404, and oversized bodies return
 413. Allocation sums all overlapping assignment records on weekdays, including
 distinct records with identical values. See [DECISIONS.md](DECISIONS.md) for the choices.
+
+### Capacity scenarios
+
+Choose **Plan capacity**, edit recurring weekly limits, and **Stage change**. Staging
+only updates the in-memory preview; it sends no write request. The scenario shows
+before/after limits and overloaded person-weeks for the planned people in the selected
+range. Restaging retains each person's original expected value. Returning to that
+value removes the no-op change. Plans hold up to 100 people, can span roster pages,
+and remain local to this browser view. Leaving with drafts prompts a browser warning.
+
+**Apply plan** sends one atomic request:
+
+```http
+PATCH /api/people/capacities
+Content-Type: application/json
+
+{"changes":[{"id":4,"weeklyHours":50,"expectedWeeklyHours":40},{"id":5,"weeklyHours":24,"expectedWeeklyHours":0}]}
+```
+
+The API accepts 1–100 unique, positive person IDs, with the same 0–168 hour and
+two-decimal rules as individual edits. It locks affected rows in ID order and checks
+every expected value before writing. Success returns `{"people":[...]}` with canonical
+values for every requested person. A missing person returns 404 with no changes.
+A conflict returns 409 with `error` and canonical `people` for all requested IDs;
+that attempt changes nothing. The UI preserves proposed values, updates their
+starting values, and requires **Apply reviewed plan**. Values already at the proposal
+drop out of the remaining draft.
+
+An identical retry succeeds when the proposed values are already stored, which
+confirms a write whose response was lost. After an unconfirmed apply, the UI freezes
+staging and removal, retains the draft and warning, and offers retry or **Close and
+refresh**. **Discard plan** also refreshes saved values. Applying, discarding, or
+removing changes is disabled while an inline editor is open. Plans have no durable
+storage or shared-editing mechanism.
 
 ### Allocation breakdown
 
@@ -165,8 +214,19 @@ docker compose exec -T web npm test
 docker compose exec -T web npm run build
 ```
 
-The Go query tests use temporary PostgreSQL tables inside a rolled-back transaction.
-They do not alter the seeded roster. To inspect the grid's numbers, use the week of
+The current suite has 17 Go tests and 25 frontend tests. The Go query and mutation
+tests use temporary PostgreSQL tables inside rolled-back transactions and preserve
+the seeded roster. Coverage includes roster-wide summary and priority semantics,
+atomic batch conflicts and retries, draft preservation, and obsolete responses.
+
+The current priority query was also checked against independently calculated seed
+arithmetic: 75,585 cells across 500 people, plus 31,314 cells in an isolated synthetic
+fixture of 3,000 people and 757,170 assignments. Whole-roster summaries, overload
+filtering, ordering, search, and first/last pages matched. In that isolated local
+fixture, sampled 105-week requests took 1.28–1.30 seconds. These sequential local
+observations use repeated seed patterns; concurrent production workloads remain
+unmeasured. The browser also rendered 50 people across 105 weeks without page overflow.
+To inspect the grid's numbers, use the week of
 January 5, 2026: Bo is 32/40 hours, Cem 4/20, Dee 45/40, and Eli 20/0. Edit a capacity,
 check every displayed week, then reload to verify persistence. A failed save should
 retain the typed value and allow retry.
@@ -180,11 +240,11 @@ Cancel or Escape after an unsuccessful save reloads current server values, inclu
 when the write committed but its response was lost. If reconciliation fails, the grid
 is replaced by a retry state. Keyboard focus returns to the edited person after recovery.
 
-An isolated synthetic validation used 3,000 people and 757,170 assignments in
-resource-limited containers. It traversed all roster pages, checked two-year results
-against independent arithmetic, and rendered a 50-person, 105-week browser view.
-The data repeats seed patterns; these were local sequential checks rather than a
-production load test. The original preview retained its 500 people and 126,195 assignments.
+To inspect a scenario, stage a higher limit for Dee and another person's change.
+The grid should preview both without changing saved values in a second tab. Apply
+once, then reload the second tab to check persistence. If one starting value changes
+in the other tab before applying, the entire batch should conflict without partially
+applying the other change.
 
 Vite is patched to 8.2.4. The original Compose, Dockerfile, Makefile, schema, and seed
 are unchanged. For local-only access, use a separate uncommitted Compose override that
