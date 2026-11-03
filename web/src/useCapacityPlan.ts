@@ -10,6 +10,7 @@ export type CapacityDraft = {
 }
 
 type Options = { onApplied: () => void; onReconcile: () => void }
+
 const isPerson = (value: unknown): value is CanonicalPerson =>
   !!value &&
   typeof value === 'object' &&
@@ -28,6 +29,8 @@ export function useCapacityPlan(options: Options) {
   const [error, setError] = useState<string | null>(null)
   const [uncertain, setUncertain] = useState(false)
   const [reviewedConflict, setReviewedConflict] = useState(false)
+
+  // Refs guard same-tick actions before React has rendered the matching state.
   const draftsRef = useRef(drafts)
   const applyingRef = useRef(false)
   const activeRef = useRef(false)
@@ -36,10 +39,12 @@ export function useCapacityPlan(options: Options) {
   callbacks.current = options
   const controller = useRef<AbortController | null>(null)
   const mounted = useRef(true)
+
   const replace = useCallback((next: CapacityDraft[]) => {
     draftsRef.current = next
     setDrafts(next)
   }, [])
+
   const markUncertain = useCallback((value: boolean) => {
     uncertainRef.current = value
     setUncertain(value)
@@ -52,6 +57,7 @@ export function useCapacityPlan(options: Options) {
       controller.current?.abort()
     }
   }, [])
+
   useEffect(() => {
     if (!drafts.length) return
     const warn = (event: BeforeUnloadEvent) => {
@@ -80,6 +86,8 @@ export function useCapacityPlan(options: Options) {
         )
       if (capacityInput(String(weeklyHours)) !== weeklyHours)
         throw new Error('Enter 0–168 hours, with up to 2 decimal places.')
+
+      // Restaging changes the proposal, never the original compare-and-set baseline.
       const previous = draftsRef.current.find((draft) => draft.id === person.id)
       const expected = previous?.expectedWeeklyHours ?? person.weeklyHours
       const remaining = draftsRef.current.filter(
@@ -141,6 +149,8 @@ export function useCapacityPlan(options: Options) {
     const abort = new AbortController()
     controller.current = abort
     const timeout = window.setTimeout(() => abort.abort(), 15_000)
+
+    // Send one batch so a conflict cannot leave half the scenario saved.
     const changes = draftsRef.current.map(
       ({ id, weeklyHours, expectedWeeklyHours }) => ({
         id,
@@ -157,6 +167,8 @@ export function useCapacityPlan(options: Options) {
       })
       const body: unknown = await response.json()
       if (!mounted.current) return
+
+      // Rebase expected values only after a confirmed conflict, then ask for review.
       if (
         response.status === 409 &&
         body &&
@@ -185,6 +197,7 @@ export function useCapacityPlan(options: Options) {
         callbacks.current.onReconcile()
         return
       }
+
       if (!response.ok) {
         markUncertain(response.status >= 500)
         const message =
@@ -197,6 +210,7 @@ export function useCapacityPlan(options: Options) {
         setError(message)
         return
       }
+
       activeRef.current = false
       setActive(false)
       replace([])
@@ -205,6 +219,9 @@ export function useCapacityPlan(options: Options) {
       callbacks.current.onApplied()
     } catch {
       if (!mounted.current) return
+
+      // The server may have committed. Freeze the payload so an identical retry
+      // can confirm it safely, or reconcile saved values when the plan is closed.
       markUncertain(true)
       setError(
         'Apply was not confirmed. Your draft is kept. Retry safely, or close the plan and refresh current values.',

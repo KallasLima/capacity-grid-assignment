@@ -9,6 +9,8 @@ import {
   type CapacitySummary,
 } from './capacity'
 
+// Reconcile the saved roster summary without recomputing every visible week.
+// Under the overload filter, changing capacity can also change roster membership.
 function changedSummary(
   summary: CapacitySummary | undefined,
   before: Person,
@@ -16,6 +18,7 @@ function changedSummary(
   status: string,
 ) {
   if (!summary) return undefined
+
   const wasOver = before.allocatedHours.some(
     (value) => value > before.weeklyHours,
   )
@@ -31,6 +34,7 @@ function changedSummary(
     (sum, value) => sum + Math.max(0, weeklyHours - value),
     0,
   )
+
   return {
     people: summary.people + Number(nowIncluded) - Number(previouslyIncluded),
     overCapacityPeople:
@@ -58,7 +62,10 @@ export function useCapacity(query: Query) {
   const search = query.search?.trim() ?? ''
   const status = query.status ?? 'all'
   const sort = query.sort ?? 'name'
+
+  // A response belongs to exactly one range, roster page, and filter selection.
   const key = `${query.from}/${query.to}/${query.offset}/${search}/${status}/${sort}`
+
   const [revision, setRevision] = useState(0)
   const [snapshot, setSnapshot] = useState<Snapshot>({
     key: '',
@@ -67,6 +74,8 @@ export function useCapacity(query: Query) {
     error: null,
   })
   const [savingId, setSavingId] = useState<number | null>(null)
+
+  // Request identity rejects late loads; mutation versions preserve newer saves.
   const request = useRef(0)
   const mutationVersion = useRef(0)
   const savedHours = useRef(
@@ -79,20 +88,25 @@ export function useCapacity(query: Query) {
     const controller = new AbortController()
     let disposed = false
     const timeout = window.setTimeout(() => controller.abort(), 15_000)
+
     setSnapshot({ key, data: null, loading: true, error: null })
+
     const params = new URLSearchParams({
       from: query.from,
       to: query.to,
       offset: String(query.offset),
       limit: '50',
     })
+
     if (search) params.set('search', search)
     if (status !== 'all') params.set('status', status)
     if (sort !== 'name') params.set('sort', sort)
+
     fetch(`/api/capacity?${params}`, { signal: controller.signal })
       .then(readResponse<Capacity>)
       .then((data) => {
         if (disposed || sequence !== request.current) return
+
         // Only reconcile edits confirmed after this request began. Later requests
         // remain authoritative, including changes made by another manager.
         let summary = data.summary
@@ -104,6 +118,7 @@ export function useCapacity(query: Query) {
           }
           return person
         })
+
         setSnapshot({
           key,
           data: { ...data, people, summary },
@@ -121,6 +136,7 @@ export function useCapacity(query: Query) {
         setSnapshot({ key, data: null, loading: false, error: message })
       })
       .finally(() => window.clearTimeout(timeout))
+
     return () => {
       disposed = true
       controller.abort()
@@ -128,15 +144,19 @@ export function useCapacity(query: Query) {
     }
   }, [key, query.from, query.to, query.offset, search, status, sort, revision])
 
+  // Accept both successful saves and canonical conflict values through one path.
   const acceptPerson = useCallback(
     (person: CanonicalPerson) => {
       savedHours.current.set(person.id, {
         hours: person.weeklyHours,
         version: ++mutationVersion.current,
       })
+
       setSnapshot((current) => {
         if (!current.data) return current
+
         const before = current.data.people.find((row) => row.id === person.id)
+
         return {
           ...current,
           data: {
@@ -165,6 +185,7 @@ export function useCapacity(query: Query) {
     [status],
   )
 
+  // Hide stale numbers while reconciling an uncertain result or changed ordering.
   const reload = useCallback(() => {
     setSnapshot((current) => ({
       ...current,
@@ -180,18 +201,26 @@ export function useCapacity(query: Query) {
       setSavingId(id)
       const controller = new AbortController()
       const timeout = window.setTimeout(() => controller.abort(), 15_000)
+
       try {
+        // Compare-and-set prevents silently overwriting another manager's edit.
         const person = await fetch(`/api/people/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ weeklyHours, expectedWeeklyHours }),
           signal: controller.signal,
         }).then(readResponse<CanonicalPerson>)
+
         acceptPerson(person)
+
+        // Filter membership and ranking must be resolved by the whole-roster query.
         if (status === 'over' || sort === 'overload') reload()
       } catch (error) {
         if (error instanceof CapacityConflictError)
           acceptPerson(error.currentPerson)
+
+        // A lost response can follow a committed write: keep the draft and reload
+        // on Cancel rather than assuming the server retained the old capacity.
         if (controller.signal.aborted)
           throw new Error(
             'Save timed out. Your draft is kept; retry, or cancel to reload current capacity.',

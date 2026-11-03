@@ -21,6 +21,7 @@ import { useCapacityPlan } from './useCapacityPlan'
 import { CapacityPlanPanel } from './CapacityPlanPanel'
 
 type Props = { from: string; to: string }
+
 function SearchIcon() {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -31,6 +32,7 @@ function SearchIcon() {
 }
 
 export function CapacityGrid({ from, to }: Props) {
+  // Applied query state is separate from form drafts: typing never changes the grid.
   const [query, setQuery] = useState<Query>({
     from,
     to,
@@ -44,6 +46,7 @@ export function CapacityGrid({ from, to }: Props) {
   const [rangeError, setRangeError] = useState('')
   const [customDates, setCustomDates] = useState(false)
   const customDateTrigger = useRef<HTMLButtonElement>(null)
+
   const [editingId, setEditingId] = useState<number | null>(null)
   const [mobileWeek, setMobileWeek] = useState(0)
   const [details, setDetails] = useState<{
@@ -53,21 +56,26 @@ export function CapacityGrid({ from, to }: Props) {
   } | null>(null)
   const { data, loading, error, savingId, savePerson, reload } =
     useCapacity(query)
+
+  // Reloads can remove the edited row, so focus needs a stable fallback destination.
   const gridPanel = useRef<HTMLDivElement>(null)
   const retryButton = useRef<HTMLButtonElement>(null)
   const focusAfterReload = useRef<number | null>(null)
   const planTrigger = useRef<HTMLButtonElement>(null)
   const focusAfterPlan = useRef(false)
   const focusOnPlanStart = useRef(false)
+
   function refreshAfterPlan() {
     focusAfterReload.current = null
     focusAfterPlan.current = true
     reload()
   }
+
   const plan = useCapacityPlan({
     onApplied: refreshAfterPlan,
     onReconcile: refreshAfterPlan,
   })
+
   useEffect(() => {
     if (loading) return
     if (focusAfterPlan.current && !plan.active) {
@@ -87,6 +95,7 @@ export function CapacityGrid({ from, to }: Props) {
       focusOnPlanStart.current = false
     }
   }, [data, loading, error, plan.active])
+
   function startPlanning() {
     plan.start()
     focusOnPlanStart.current = true
@@ -97,6 +106,7 @@ export function CapacityGrid({ from, to }: Props) {
       offset: 0,
     }))
   }
+
   useEffect(() => {
     if (focusAfterReload.current === null || loading) return
     if (error) {
@@ -110,9 +120,12 @@ export function CapacityGrid({ from, to }: Props) {
     else if (data) gridPanel.current?.focus()
     if (button || data) focusAfterReload.current = null
   }, [data, loading, error])
+
   useEffect(() => {
     setMobileWeek(0)
   }, [query.from, query.to])
+
+  // A save or another manager can shrink the last page without emptying the roster.
   useEffect(() => {
     if (
       !loading &&
@@ -128,10 +141,12 @@ export function CapacityGrid({ from, to }: Props) {
       }))
     }
   }, [loading, data, query.offset])
+
   function reconcile(id: number) {
     focusAfterReload.current = id
     reload()
   }
+
   function openDetails(person: Person) {
     if (!data) return
     const overloaded = person.allocatedHours.findIndex(
@@ -146,9 +161,12 @@ export function CapacityGrid({ from, to }: Props) {
     const week = data.weeks[Math.min(index, data.weeks.length - 1)].start
     setDetails({ personId: person.id, personName: person.name, week })
   }
+
   const busy = savingId !== null || plan.applying
   const viewLocked = busy || editingId !== null
   const dateLocked = viewLocked || plan.active
+
+  // Keep saved metrics authoritative; only rows and scenario impact use draft limits.
   const savedById = new Map(
     data?.people.map((person) => [person.id, person]) ?? [],
   )
@@ -188,6 +206,7 @@ export function CapacityGrid({ from, to }: Props) {
   const overCount = globalSummary?.overCapacityPeople ?? pageOverCount
   const allocated = globalSummary?.allocatedHours ?? pageAllocated
   const available = globalSummary?.availableHours ?? pageAvailable
+
   async function saveCapacity(id: number, value: number, expected: number) {
     if (plan.active) {
       const savedPerson = savedById.get(id)
@@ -200,6 +219,7 @@ export function CapacityGrid({ from, to }: Props) {
     if (query.status === 'over' || query.sort === 'overload')
       focusAfterReload.current = id
   }
+
   function applyRange(event: FormEvent) {
     event.preventDefault()
     if (!range.from || !range.to || range.from > range.to) {
@@ -215,6 +235,7 @@ export function CapacityGrid({ from, to }: Props) {
     setCustomDates(false)
     setQuery((current) => ({ ...current, ...range, offset: 0 }))
   }
+
   function navigate(days: number) {
     const next = {
       from: shiftDate(query.from, days),
@@ -224,6 +245,7 @@ export function CapacityGrid({ from, to }: Props) {
     setRangeError('')
     setQuery((current) => ({ ...current, ...next, offset: 0 }))
   }
+
   function chooseWeeks(count: number) {
     const weekday = new Date(`${query.from}T12:00:00Z`).getUTCDay()
     const start = shiftDate(query.from, -((weekday + 6) % 7))
@@ -232,22 +254,27 @@ export function CapacityGrid({ from, to }: Props) {
     setRangeError('')
     setQuery((current) => ({ ...current, ...next, offset: 0 }))
   }
+
   function applySearch(event: FormEvent) {
     event.preventDefault()
     setQuery((current) => ({ ...current, search: search.trim(), offset: 0 }))
   }
+
   function clearSearch() {
     setSearch('')
     setQuery((current) => ({ ...current, search: '', offset: 0 }))
   }
+
   function resetView() {
     setSearch('')
     setRange({ from, to })
     setRangeError('')
     setQuery({ from, to, offset: 0, search: '', status: 'all', sort: 'name' })
   }
+
   const currentMobileWeek =
     data?.weeks[Math.min(mobileWeek, data.weeks.length - 1)]
+
   return (
     <section aria-label="Team capacity planning">
       <div className="workspace-heading">

@@ -18,6 +18,25 @@ before saving. One atomic apply keeps a plan from being partly saved when someon
 else changes a starting value. This changes capacity limits; it does not rebalance
 project assignments. Plans are local to the open browser view.
 
+## Screenshots
+
+The six-week grid shows saved allocation and capacity, with overloads emphasized.
+
+![Desktop capacity grid with overload filtering and inline capacity editing](docs/images/capacity-desktop.png)
+
+<details>
+<summary>Scenario preview and mobile layout</summary>
+
+Staged recurring-capacity changes remain a preview until the plan is applied.
+
+![Scenario preview showing two staged capacity changes and their overload impact](docs/images/capacity-plan.png)
+
+The mobile view keeps one selected week readable alongside each person's capacity.
+
+<img src="docs/images/capacity-plan-mobile.png" alt="Mobile scenario preview and selected-week capacity grid" width="320">
+
+</details>
+
 ## Run
 
 Requires Docker with Docker Compose v2, Make, and free ports 3000 and 8080.
@@ -70,7 +89,8 @@ Independent arithmetic matched 75,585 seed cells and 31,314 cells in an isolated
 locally; these sequential repeated-seed observations do not measure production
 concurrency. Roster pages and date bounds keep the browser workload bounded.
 
-[Decisions](DECISIONS.md) explain the tradeoffs. [API and behavior reference](docs/API.md)
-contains contracts, recovery semantics, and detailed checks. The unmodified
-[original assignment](ASSIGNMENT.md) and [worklog](.notes/worklog.md) preserve the brief
-and implementation checkpoints.
+[Architecture](docs/ARCHITECTURE.md) maps the components, data flow, and save/recovery
+boundaries. [Decisions](DECISIONS.md) explain the tradeoffs. The
+[API and behavior reference](docs/API.md) contains contracts and detailed checks.
+The unmodified [original assignment](ASSIGNMENT.md) and [worklog](.notes/worklog.md)
+preserve the brief and implementation checkpoints.

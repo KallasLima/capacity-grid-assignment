@@ -26,6 +26,7 @@ type allocationBreakdown struct {
 	Projects       []projectAllocation `json:"projects"`
 }
 
+// Normalize details to the same full Monday-based weeks used by the grid.
 func parseAllocationWeek(raw string) (capacityWeek, error) {
 	day, err := time.Parse(dateLayout, raw)
 	if err != nil || day.Year() < 1 {
@@ -39,6 +40,8 @@ func parseAllocationWeek(raw string) (capacityWeek, error) {
 	return capacityWeek{Start: start.Format(dateLayout), End: end.Format(dateLayout)}, nil
 }
 
+// Expand only the selected week's five weekdays. Every source assignment remains
+// additive, including records with equal dates and hours but distinct IDs.
 const allocationBreakdownQuery = `
 WITH scoped AS MATERIALIZED (
     SELECT a.id, a.project_id, a.hours_per_day,
@@ -66,6 +69,9 @@ func loadAllocationBreakdown(ctx context.Context, db capacityDB, id int64, week 
 	if err != nil {
 		return result, err
 	}
+
+	// Looking up the person separately distinguishes a missing person from an
+	// existing person whose selected week simply has no project allocations.
 	rows, err := db.Query(ctx, allocationBreakdownQuery, id, week.Start, week.End)
 	if err != nil {
 		return result, err
@@ -87,11 +93,13 @@ func (s *server) handleAllocationBreakdown(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid person ID."})
 		return
 	}
+
 	week, err := parseAllocationWeek(r.URL.Query().Get("week"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), databaseTimeout)
 	defer cancel()
 	result, err := loadAllocationBreakdown(ctx, s.db, id, week)

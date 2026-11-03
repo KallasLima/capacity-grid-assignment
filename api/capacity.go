@@ -34,6 +34,7 @@ type capacityPerson struct {
 	AllocatedHours []float64 `json:"allocatedHours"`
 }
 
+// Summary describes the entire filtered roster; it must not vary with the page.
 type capacitySummary struct {
 	People             int     `json:"people"`
 	OverCapacityPeople int     `json:"overCapacityPeople"`
@@ -82,6 +83,8 @@ func parseCapacityRange(query url.Values) (capacityRange, error) {
 	if result.to.Year() > 9999 || lastMonday.Sub(result.from)/(7*24*time.Hour)+1 > 106 {
 		return capacityRange{}, fmt.Errorf("choose a range of at most 106 weeks")
 	}
+
+	// Bound the rendered matrix independently of the roster-wide scoring query.
 	result.limit = 50
 	if raw := query.Get("limit"); raw != "" {
 		result.limit, err = strconv.Atoi(raw)
@@ -95,10 +98,12 @@ func parseCapacityRange(query url.Values) (capacityRange, error) {
 			return capacityRange{}, fmt.Errorf("offset must be a non-negative integer")
 		}
 	}
+
 	result.search = strings.TrimSpace(query.Get("search"))
 	if !utf8.ValidString(result.search) || utf8.RuneCountInString(result.search) > 100 {
 		return capacityRange{}, fmt.Errorf("search must contain at most 100 valid characters")
 	}
+
 	result.status = query.Get("status")
 	if result.status == "" {
 		result.status = "all"
@@ -106,6 +111,7 @@ func parseCapacityRange(query url.Values) (capacityRange, error) {
 	if result.status != "all" && result.status != "over" {
 		return capacityRange{}, fmt.Errorf("status must be all or over")
 	}
+
 	result.sort = query.Get("sort")
 	if result.sort == "" {
 		result.sort = "name"
@@ -194,11 +200,14 @@ func loadCapacity(ctx context.Context, db capacityDB, selected capacityRange) (c
 		Weeks: []capacityWeek{}, People: []capacityPerson{},
 		Offset: selected.offset, Limit: selected.limit,
 	}
+
+	// Keep week labels and every person's allocation array on the same index axis.
 	for start := selected.from; !start.After(selected.to); start = start.AddDate(0, 0, 7) {
 		result.Weeks = append(result.Weeks, capacityWeek{
 			Start: start.Format(dateLayout), End: start.AddDate(0, 0, 6).Format(dateLayout),
 		})
 	}
+
 	var encodedPeople []byte
 	err := db.QueryRow(ctx, capacityQuery, result.From, result.To,
 		selected.limit, selected.offset, searchPattern(selected.search), selected.status, selected.sort).
@@ -207,6 +216,7 @@ func loadCapacity(ctx context.Context, db capacityDB, selected capacityRange) (c
 	if err != nil {
 		return result, err
 	}
+
 	result.Summary.People = result.Total
 	if err := json.Unmarshal(encodedPeople, &result.People); err != nil {
 		return result, err
@@ -220,6 +230,8 @@ func (s *server) handleCapacity(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+
+	// Cancel database work when either the request or its bounded budget expires.
 	ctx, cancel := context.WithTimeout(r.Context(), databaseTimeout)
 	defer cancel()
 	result, err := loadCapacity(ctx, s.db, selected)

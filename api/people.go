@@ -30,6 +30,8 @@ func decodeCapacityUpdate(body io.Reader) (capacityUpdate, error) {
 	if err := decoder.Decode(&raw); err != nil {
 		return capacityUpdate{}, err
 	}
+
+	// Reject trailing JSON so one request cannot ambiguously describe two edits.
 	var extra any
 	if err := decoder.Decode(&extra); err == nil {
 		return capacityUpdate{}, fmt.Errorf("expected one JSON object")
@@ -76,11 +78,15 @@ func updatePersonCapacity(ctx context.Context, db capacityDB, id int64, update c
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return current, err
 	}
+
+	// A failed predicate can mean a missing person, a conflict, or a retry after
+	// the first write committed but its response never reached the browser.
 	err = db.QueryRow(ctx, `SELECT id, name, weekly_hours::double precision FROM people WHERE id = $1`, id).
 		Scan(&current.ID, &current.Name, &current.WeeklyHours)
 	if err != nil {
 		return current, err
 	}
+
 	if current.WeeklyHours == update.WeeklyHours {
 		return current, nil
 	}
@@ -93,6 +99,7 @@ func (s *server) handleUpdatePerson(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid person ID."})
 		return
 	}
+
 	update, err := decodeCapacityUpdate(http.MaxBytesReader(w, r.Body, 4096))
 	if err != nil {
 		status := http.StatusBadRequest
@@ -103,6 +110,7 @@ func (s *server) handleUpdatePerson(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": "Enter weeklyHours and expectedWeeklyHours from 0 to 168, with at most two decimal places."})
 		return
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), databaseTimeout)
 	defer cancel()
 	updated, err := updatePersonCapacity(ctx, s.db, id, update)

@@ -29,13 +29,18 @@ export function CapacityEditor({
   const [error, setError] = useState('')
   const [savedHours, setSavedHours] = useState<number | null>(null)
   const [conflict, setConflict] = useState<CanonicalPerson | null>(null)
+
+  // Keep the value seen when editing began, even if canonical props change later.
   const expectedHours = useRef(person.weeklyHours)
   const hoursInput = useRef<HTMLInputElement>(null)
   const editButton = useRef<HTMLButtonElement>(null)
   const unsuccessfulSave = useRef(false)
+
   function close() {
     setEditing(false)
     onEditing(null)
+
+    // Cancel after a failed response must reconcile a possibly committed write.
     if (unsuccessfulSave.current) {
       unsuccessfulSave.current = false
       onReconcile(person.id)
@@ -43,6 +48,7 @@ export function CapacityEditor({
     }
     requestAnimationFrame(() => editButton.current?.focus())
   }
+
   async function submit(event: FormEvent) {
     event.preventDefault()
     const value = capacityInput(draft)
@@ -50,6 +56,7 @@ export function CapacityEditor({
       setError('Enter 0–168 hours, with up to 2 decimal places.')
       return
     }
+
     setError('')
     try {
       await save(person.id, value, expectedHours.current)
@@ -71,6 +78,7 @@ export function CapacityEditor({
       requestAnimationFrame(() => hoursInput.current?.focus())
     }
   }
+
   if (!editing)
     return (
       <div className="capacity-control">
@@ -103,6 +111,7 @@ export function CapacityEditor({
         )}
       </div>
     )
+
   return (
     <form
       className="capacity-editor"

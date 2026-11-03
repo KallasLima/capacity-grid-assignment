@@ -34,6 +34,7 @@ func decodeCapacityPlan(body io.Reader) ([]planChange, error) {
 	if err := decoder.Decode(&input); err != nil {
 		return nil, err
 	}
+
 	var trailing any
 	if err := decoder.Decode(&trailing); err == nil {
 		return nil, fmt.Errorf("send one JSON object")
@@ -43,6 +44,8 @@ func decodeCapacityPlan(body io.Reader) ([]planChange, error) {
 	if len(input.Changes) < 1 || len(input.Changes) > 100 {
 		return nil, fmt.Errorf("a plan must contain between 1 and 100 people")
 	}
+
+	// Duplicate IDs would make both expected-value checks and lock intent unclear.
 	seen := make(map[int64]bool, len(input.Changes))
 	changes := make([]planChange, 0, len(input.Changes))
 	for _, raw := range input.Changes {
@@ -77,6 +80,8 @@ func applyCapacityPlan(ctx context.Context, tx pgx.Tx, changes []planChange) ([]
 	for i, change := range ordered {
 		ids[i] = int32(change.ID)
 	}
+
+	// Acquire the complete lock set before evaluating any proposed mutation.
 	rows, err := tx.Query(ctx, `
         SELECT id, name, weekly_hours::double precision
         FROM people WHERE id = ANY($1::int[])
@@ -101,12 +106,16 @@ func applyCapacityPlan(ctx context.Context, tx pgx.Tx, changes []planChange) ([]
 	if len(current) != len(ordered) {
 		return current, errPlanPersonMissing
 	}
+
+	// Validate every baseline first: one stale person rejects the whole plan.
 	for i, entry := range current {
 		change := ordered[i]
 		if entry.WeeklyHours != change.ExpectedWeeklyHours && entry.WeeklyHours != change.WeeklyHours {
 			return current, errPlanConflict
 		}
 	}
+
+	// Writes begin only after validation, and remain provisional until commit.
 	for i, entry := range current {
 		if entry.WeeklyHours == ordered[i].WeeklyHours {
 			continue // An already-applied plan can safely confirm a lost response.
@@ -132,6 +141,7 @@ func (s *server) handleCapacityPlan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"error": "Use 1–100 distinct people with valid current and proposed weekly hours."})
 		return
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), databaseTimeout)
 	defer cancel()
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{})
@@ -140,11 +150,14 @@ func (s *server) handleCapacityPlan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not apply the plan. Please try again."})
 		return
 	}
+
+	// Cleanup gets its own short context even if the request was disconnected.
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), time.Second)
 		defer stop()
 		_ = tx.Rollback(cleanup)
 	}()
+
 	people, err := applyCapacityPlan(ctx, tx, changes)
 	if errors.Is(err, errPlanPersonMissing) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "One or more people no longer exist.", "people": people})
@@ -154,6 +167,9 @@ func (s *server) handleCapacityPlan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "Some capacities changed since this plan was prepared.", "people": people})
 		return
 	}
+
+	// A commit/transport error may leave the client unsure of the outcome;
+	// accepting already-desired values makes its unchanged retry safe.
 	if err == nil {
 		err = tx.Commit(ctx)
 	}
