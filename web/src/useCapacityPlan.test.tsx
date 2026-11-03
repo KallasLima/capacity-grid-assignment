@@ -1,11 +1,273 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Person } from './capacity'
+import type { Person, Query } from './capacity'
 import { useCapacityPlan } from './useCapacityPlan'
+import {
+  PLAN_PREFIX,
+  PLAN_TTL,
+  readRecovery,
+  type SavedPlan,
+} from './planStorage'
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  localStorage.clear()
+  sessionStorage.clear()
+  vi.restoreAllMocks()
+})
+
+const savedQuery: Query = {
+  from: '2026-01-05',
+  to: '2026-01-18',
+  offset: 50,
+  search: 'Ana',
+  status: 'over',
+  sort: 'overload',
+}
+
+function backup(uncertain = false): SavedPlan {
+  const savedAt = Date.now()
+  return {
+    version: 1,
+    id: 'saved-plan',
+    revision: 'saved-revision',
+    savedAt,
+    expiresAt: savedAt + PLAN_TTL,
+    query: savedQuery,
+    drafts: [
+      {
+        id: ana.id,
+        name: ana.name,
+        expectedWeeklyHours: 40,
+        weeklyHours: 50,
+        allocatedHours: [...ana.allocatedHours],
+      },
+    ],
+    uncertain,
+    reviewedConflict: false,
+  }
+}
+
+describe('explicit draft recovery', () => {
+  it('keeps recovery available when saving its fork fails, while the in-memory draft remains usable', async () => {
+    const source = backup()
+    localStorage.setItem(PLAN_PREFIX + source.id, JSON.stringify(source))
+    const originalSet = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      if (key.startsWith(PLAN_PREFIX)) throw new Error('Quota exceeded')
+      return originalSet.call(this, key, value)
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          json({ person: { id: ana.id, name: ana.name, weeklyHours: 40 } }),
+        ),
+    )
+    const hook = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    await act(async () => hook.result.current.restore())
+    expect(hook.result.current.active).toBe(true)
+    expect(hook.result.current.storageWarning).toMatch(
+      /recovery is unavailable/,
+    )
+    expect(localStorage.getItem(PLAN_PREFIX + source.id)).toBe(
+      JSON.stringify(source),
+    )
+    await act(async () => hook.result.current.stage(bo, 30))
+    expect(hook.result.current.drafts).toHaveLength(2)
+    act(() => hook.result.current.discard())
+    expect(readRecovery().plan).toBeNull()
+  })
+
+  it('does not reactivate a recovery that was dismissed while its reads were pending', async () => {
+    localStorage.setItem(PLAN_PREFIX + 'saved-plan', JSON.stringify(backup()))
+    let finish!: (response: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockReturnValue(
+        new Promise<Response>((resolve) => {
+          finish = resolve
+        }),
+      ),
+    )
+    const hook = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    let restoring!: Promise<void>
+    act(() => {
+      restoring = hook.result.current.restore()
+    })
+    expect(hook.result.current.restoring).toBe(true)
+    act(() => hook.result.current.discardRecovery())
+    await act(async () => {
+      finish(json({ person: { id: ana.id, name: ana.name, weeklyHours: 40 } }))
+      await restoring
+    })
+    expect(hook.result.current.active).toBe(false)
+    expect(hook.result.current.recovery).toBeNull()
+    expect(hook.result.current.restoring).toBe(false)
+  })
+
+  it('backs up staging, restores the exact view after refresh, and only reads until explicit apply', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        json({ person: { id: ana.id, name: ana.name, weeklyHours: 40 } }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const first = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    act(() => first.result.current.start())
+    await act(async () => first.result.current.stage(ana, 50))
+    expect(readRecovery().plan?.drafts[0].weeklyHours).toBe(50)
+    first.unmount()
+
+    const onRestoreQuery = vi.fn()
+    const second = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onRestoreQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    expect(second.result.current.active).toBe(false)
+    expect(second.result.current.recovery?.drafts).toHaveLength(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+    await act(async () => second.result.current.restore())
+    expect(second.result.current.active).toBe(true)
+    expect(onRestoreQuery).toHaveBeenCalledWith(savedQuery)
+    expect(second.result.current.drafts[0].weeklyHours).toBe(50)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => !init?.method || init.method === 'GET',
+      ),
+    ).toBe(true)
+    act(() => second.result.current.discard())
+    expect(readRecovery().plan).toBeNull()
+  })
+
+  it('reconciles changed baselines for explicit reviewed apply without altering the proposal', async () => {
+    localStorage.setItem(PLAN_PREFIX + 'saved-plan', JSON.stringify(backup()))
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        json({ person: { id: ana.id, name: ana.name, weeklyHours: 32 } }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const hook = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    await act(async () => hook.result.current.restore())
+    expect(hook.result.current.drafts[0]).toMatchObject({
+      expectedWeeklyHours: 32,
+      weeklyHours: 50,
+    })
+    expect(hook.result.current.reviewedConflict).toBe(true)
+    expect(hook.result.current.error).toMatch(/changed while you were away/)
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method)).toBe(true)
+  })
+
+  it('persists uncertainty before sending PATCH and restores its unchanged retry payload', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => {
+      expect(readRecovery().plan?.uncertain).toBe(true)
+      throw new TypeError('Response lost')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const first = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    act(() => first.result.current.start())
+    await act(async () => first.result.current.stage(ana, 50))
+    await act(async () => first.result.current.apply())
+    const payload = fetchMock.mock.calls[0][1]?.body
+    first.unmount()
+
+    fetchMock.mockImplementation(async (_url, init) =>
+      init?.method === 'PATCH'
+        ? json({ people: [{ id: ana.id, name: ana.name, weeklyHours: 50 }] })
+        : json({ person: { id: ana.id, name: ana.name, weeklyHours: 50 } }),
+    )
+    const second = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    await act(async () => second.result.current.restore())
+    expect(second.result.current.uncertain).toBe(true)
+    expect(second.result.current.drafts[0].expectedWeeklyHours).toBe(40)
+    await expect(second.result.current.stage(bo, 30)).rejects.toThrow(
+      /Confirm the previous apply/,
+    )
+    await act(async () => second.result.current.apply())
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.body).toBe(payload)
+    expect(readRecovery().plan).toBeNull()
+  })
+
+  it('keeps failed recovery available and leaves another plan backup untouched', async () => {
+    const source = backup()
+    const other = {
+      ...backup(),
+      id: 'another-tab',
+      revision: 'other-revision',
+      savedAt: source.savedAt - 1,
+      expiresAt: source.expiresAt - 1,
+    }
+    localStorage.setItem(PLAN_PREFIX + source.id, JSON.stringify(source))
+    localStorage.setItem(PLAN_PREFIX + other.id, JSON.stringify(other))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Offline')),
+    )
+    const hook = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    await act(async () => hook.result.current.restore())
+    expect(hook.result.current.active).toBe(false)
+    expect(hook.result.current.recoveryError).toBeTruthy()
+    expect(hook.result.current.recovery?.id).toBe(source.id)
+    act(() => hook.result.current.discardRecovery())
+    expect(localStorage.getItem(PLAN_PREFIX + other.id)).toBe(
+      JSON.stringify(other),
+    )
+    expect(readRecovery().plan?.id).toBe(other.id)
+  })
 })
 
 const ana: Person = {

@@ -275,6 +275,17 @@
   margin: 8px 0 0;
 }
 
+/* Keep proposed limits visually separate from the inspector's saved totals. */
+.allocation-details-draft-context {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f3edf8;
+  color: #583b69;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* An empty week is distinct from a failed request. */
 .allocation-details-empty {
   padding: 36px 14px;

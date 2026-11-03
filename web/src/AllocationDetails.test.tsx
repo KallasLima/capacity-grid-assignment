@@ -98,6 +98,28 @@ function openDetails() {
 }
 
 describe('AllocationDetails', () => {
+  it('keeps saved calculations separate from a zero-hour proposed limit while planning', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(json(breakdown())),
+    )
+    render(
+      <AllocationDetails
+        personId={4}
+        personName="Dee Okafor"
+        week="2026-01-05"
+        onClose={vi.fn()}
+        planning
+        draftWeeklyHours={0}
+      />,
+    )
+    await screen.findByRole('heading', { name: 'Atlas' })
+    expect(screen.getByText('of 40 h saved weekly capacity')).toBeTruthy()
+    expect(screen.getByText('0 h / week')).toBeTruthy()
+    expect(screen.getByText('5 h over capacity')).toBeTruthy()
+    expect(screen.queryByText('45 h over capacity')).toBeNull()
+  })
+
   it('renders the supplied project totals and distinct assignment counts without losing fractional hours', async () => {
     const data = breakdown()
     data.projects = [

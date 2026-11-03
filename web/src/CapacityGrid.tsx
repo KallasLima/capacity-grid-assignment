@@ -19,6 +19,7 @@ import { AllocationCell } from './AllocationCell'
 import { AllocationDetails } from './AllocationDetails'
 import { useCapacityPlan } from './useCapacityPlan'
 import { CapacityPlanPanel } from './CapacityPlanPanel'
+import { PlanRecovery } from './PlanRecovery'
 
 type Props = { from: string; to: string }
 
@@ -72,8 +73,22 @@ export function CapacityGrid({ from, to }: Props) {
   }
 
   const plan = useCapacityPlan({
+    query,
     onApplied: refreshAfterPlan,
     onReconcile: refreshAfterPlan,
+    onRestoreQuery: (restored) => {
+      // Recovered allocation arrays belong to their saved date horizon.
+      setQuery(restored)
+      setRange({ from: restored.from, to: restored.to })
+      setSearch(restored.search ?? '')
+      setRangeError('')
+      setCustomDates(false)
+      setDetails(null)
+      setEditingId(null)
+      focusAfterPlan.current = false
+      focusOnPlanStart.current = true
+      reload()
+    },
   })
 
   useEffect(() => {
@@ -99,12 +114,6 @@ export function CapacityGrid({ from, to }: Props) {
   function startPlanning() {
     plan.start()
     focusOnPlanStart.current = true
-    setQuery((current) => ({
-      ...current,
-      status: 'all',
-      sort: 'name',
-      offset: 0,
-    }))
   }
 
   useEffect(() => {
@@ -149,10 +158,12 @@ export function CapacityGrid({ from, to }: Props) {
 
   function openDetails(person: Person) {
     if (!data) return
-    const overloaded = person.allocatedHours.findIndex(
-      (value) => value > person.weeklyHours,
+    // Discovery remains anchored to saved work while the grid previews draft limits.
+    const baseline = savedById.get(person.id) ?? person
+    const overloaded = baseline.allocatedHours.findIndex(
+      (value) => value > baseline.weeklyHours,
     )
-    const allocated = person.allocatedHours.findIndex((value) => value > 0)
+    const allocated = baseline.allocatedHours.findIndex((value) => value > 0)
     const index = window.matchMedia('(max-width: 680px)').matches
       ? mobileWeek
       : overloaded >= 0
@@ -162,7 +173,7 @@ export function CapacityGrid({ from, to }: Props) {
     setDetails({ personId: person.id, personName: person.name, week })
   }
 
-  const busy = savingId !== null || plan.applying
+  const busy = savingId !== null || plan.applying || plan.restoring
   const viewLocked = busy || editingId !== null
   const dateLocked = viewLocked || plan.active
 
@@ -301,7 +312,9 @@ export function CapacityGrid({ from, to }: Props) {
             ref={planTrigger}
             className="primary-button plan-start-button"
             type="button"
-            disabled={viewLocked || loading || plan.active || !data}
+            disabled={
+              viewLocked || loading || plan.active || !!plan.recovery || !data
+            }
             onClick={startPlanning}
           >
             Plan capacity
@@ -451,7 +464,7 @@ export function CapacityGrid({ from, to }: Props) {
             type="button"
             className={`priority-toggle ${query.status === 'over' ? 'active' : ''}`}
             aria-pressed={query.status === 'over'}
-            disabled={dateLocked}
+            disabled={viewLocked}
             onClick={() =>
               setQuery((current) => ({
                 ...current,
@@ -468,7 +481,7 @@ export function CapacityGrid({ from, to }: Props) {
             <select
               aria-label="Sort people"
               value={query.sort ?? 'name'}
-              disabled={dateLocked}
+              disabled={viewLocked}
               onChange={(event) =>
                 setQuery((current) => ({
                   ...current,
@@ -482,7 +495,9 @@ export function CapacityGrid({ from, to }: Props) {
             </select>
           </label>
           <span className="priority-scope">
-            Across the whole matching roster
+            {plan.active
+              ? 'Filters and order use saved capacities'
+              : 'Across the whole matching roster'}
           </span>
         </div>
       </div>
@@ -491,6 +506,7 @@ export function CapacityGrid({ from, to }: Props) {
           {rangeError}
         </p>
       )}
+      <PlanRecovery plan={plan} disabled={viewLocked} />
       <CapacityPlanPanel plan={plan} disabled={editingId !== null} />
       <p className="summary-context">
         {globalSummary ? 'Saved roster summary' : 'Saved page summary'} · all{' '}
@@ -705,7 +721,7 @@ export function CapacityGrid({ from, to }: Props) {
                         </span>
                         <button
                           className="person-details-button"
-                          disabled={viewLocked || plan.active}
+                          disabled={viewLocked}
                           onClick={() => openDetails(person)}
                           aria-label={`View allocation details for ${person.name}`}
                         >
@@ -771,12 +787,12 @@ export function CapacityGrid({ from, to }: Props) {
               {data && data.total > 0
                 ? 'The matching roster changed. Loading its last available page.'
                 : query.status === 'over'
-                ? query.search
-                  ? `No people matching “${query.search}” are over capacity in this range.`
-                  : 'No one is over capacity in the selected date range.'
-                : query.search
-                  ? `No names match “${query.search}”. Try a different name or clear your search.`
-                  : 'The roster is empty for this page.'}
+                  ? query.search
+                    ? `No people matching “${query.search}” are over capacity in this range.`
+                    : 'No one is over capacity in the selected date range.'
+                  : query.search
+                    ? `No names match “${query.search}”. Try a different name or clear your search.`
+                    : 'The roster is empty for this page.'}
             </p>
             <button
               className="primary-button"
@@ -863,7 +879,15 @@ export function CapacityGrid({ from, to }: Props) {
         weekly limit. Changing it updates every week.
       </p>
       {details && (
-        <AllocationDetails {...details} onClose={() => setDetails(null)} />
+        <AllocationDetails
+          {...details}
+          planning={plan.active}
+          draftWeeklyHours={
+            plan.drafts.find((draft) => draft.id === details.personId)
+              ?.weeklyHours
+          }
+          onClose={() => setDetails(null)}
+        />
       )}
     </section>
   )

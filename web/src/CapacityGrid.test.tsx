@@ -8,13 +8,57 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { CapacityGrid } from './CapacityGrid'
 import type { Capacity } from './capacity'
+import { PLAN_PREFIX, PLAN_TTL, type SavedPlan } from './planStorage'
+
+const originalDialogMethods = {
+  showModal: Object.getOwnPropertyDescriptor(
+    HTMLDialogElement.prototype,
+    'showModal',
+  ),
+  close: Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close'),
+}
+
+beforeAll(() => {
+  // Native focus trapping is checked in Chrome; JSDOM only needs open/close state.
+  Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.setAttribute('open', '')
+    },
+  })
+  Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+    configurable: true,
+    value: function (this: HTMLDialogElement) {
+      this.removeAttribute('open')
+    },
+  })
+})
+
+afterAll(() => {
+  for (const method of ['showModal', 'close'] as const) {
+    const descriptor = originalDialogMethods[method]
+    if (descriptor)
+      Object.defineProperty(HTMLDialogElement.prototype, method, descriptor)
+    else Reflect.deleteProperty(HTMLDialogElement.prototype, method)
+  }
+})
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  localStorage.clear()
+  sessionStorage.clear()
 })
 
 function capacity(name = 'Ana Ferreira', weeklyHours = 40): Capacity {
@@ -48,6 +92,260 @@ function deferred<T>() {
 }
 
 describe('CapacityGrid', () => {
+  it('keeps saved-draft recovery locked until the ordinary inline edit is finished', async () => {
+    const savedAt = Date.now()
+    const savedPlan: SavedPlan = {
+      version: 1,
+      id: 'inline-edit-recovery',
+      revision: 'inline-edit-revision',
+      savedAt,
+      expiresAt: savedAt + PLAN_TTL,
+      query: {
+        from: '2026-01-05',
+        to: '2026-01-25',
+        offset: 0,
+        search: 'Ana',
+        status: 'over',
+        sort: 'overload',
+      },
+      drafts: [
+        {
+          id: 1,
+          name: 'Ana Ferreira',
+          expectedWeeklyHours: 40,
+          weeklyHours: 50,
+          allocatedHours: [45, 30, 0],
+        },
+      ],
+      uncertain: false,
+      reviewedConflict: false,
+    }
+    localStorage.setItem(PLAN_PREFIX + savedPlan.id, JSON.stringify(savedPlan))
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).includes('/allocations?'))
+        return json({
+          person: { id: 1, name: 'Ana Ferreira', weeklyHours: 40 },
+        })
+
+      const response = capacity()
+      const params = new URL(String(input), 'http://localhost').searchParams
+      if (params.get('from') === savedPlan.query.from) {
+        response.from = '2026-01-05'
+        response.to = '2026-01-25'
+        response.weeks = [
+          { start: '2026-01-05', end: '2026-01-11' },
+          { start: '2026-01-12', end: '2026-01-18' },
+          { start: '2026-01-19', end: '2026-01-25' },
+        ]
+      }
+      return json(response)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Edit weekly capacity for Ana Ferreira',
+      }),
+    )
+    const input = screen.getByRole('spinbutton', {
+      name: 'Weekly hours for Ana Ferreira',
+    }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '37' } })
+
+    // Recovery must not replace the query and unmount an unrelated unsaved edit.
+    for (const name of ['Restore draft', 'Discard saved draft']) {
+      const button = screen.getByRole('button', { name }) as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+      fireEvent.click(button)
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(input.isConnected).toBe(true)
+    expect(input.value).toBe('37')
+    expect(localStorage.getItem(PLAN_PREFIX + savedPlan.id)).toBe(
+      JSON.stringify(savedPlan),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    for (const name of ['Restore draft', 'Discard saved draft'])
+      expect(screen.getByRole('button', { name })).toHaveProperty(
+        'disabled',
+        false,
+      )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore draft' }))
+    await screen.findByText('1 person changed')
+    const restoredEdit = await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Ana Ferreira',
+    })
+    expect(restoredEdit).toHaveProperty('disabled', false)
+    expect(
+      screen.getByRole('searchbox', { name: 'Search people' }),
+    ).toHaveProperty('disabled', false)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(
+      fetchMock.mock.calls.every(([, options]) => options?.method !== 'PATCH'),
+    ).toBe(true)
+
+    fireEvent.click(restoredEdit)
+    expect(
+      (
+        screen.getByRole('spinbutton', {
+          name: 'Weekly hours for Ana Ferreira',
+        }) as HTMLInputElement
+      ).value,
+    ).toBe('50')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(
+      screen.getByRole('combobox', { name: 'Sort people' }),
+    ).toHaveProperty('disabled', false)
+  })
+
+  it('keeps the searched, prioritized page when planning starts and retains drafts while priority filters change', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const params = new URL(String(input), 'http://localhost').searchParams
+      return json({
+        ...capacity(),
+        total: 120,
+        offset: Number(params.get('offset')),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    const loaded = () =>
+      screen.findByRole('button', {
+        name: 'Edit weekly capacity for Ana Ferreira',
+      })
+    await loaded()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search people' }), {
+      target: { value: 'Ana' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Search$/ }))
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: 'Over capacity only' }))
+    await loaded()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort people' }), {
+      target: { value: 'overload' },
+    })
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: 'Next people' }))
+    await loaded()
+    const requestsBeforePlanning = fetchMock.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'Plan capacity' }))
+    expect(fetchMock).toHaveBeenCalledTimes(requestsBeforePlanning)
+    expect(screen.getByText('51–51 of 120')).toBeTruthy()
+    expect(
+      (
+        screen.getByRole('searchbox', {
+          name: 'Search people',
+        }) as HTMLInputElement
+      ).value,
+    ).toBe('Ana')
+    expect(
+      (
+        screen.getByRole('combobox', {
+          name: 'Sort people',
+        }) as HTMLSelectElement
+      ).value,
+    ).toBe('overload')
+    expect(
+      screen
+        .getByRole('button', { name: 'Over capacity only' })
+        .getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      screen.getByText('Filters and order use saved capacities'),
+    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Custom dates' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+
+    fireEvent.click(await loaded())
+    fireEvent.change(
+      screen.getByRole('spinbutton', { name: 'Weekly hours for Ana Ferreira' }),
+      { target: { value: '50' } },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Stage change' }))
+    await screen.findByText('1 person changed')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort people' }), {
+      target: { value: 'name' },
+    })
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: 'Over capacity only' }))
+    await loaded()
+    expect(screen.getByText('1 person changed')).toBeTruthy()
+    expect(
+      screen.getAllByRole('cell', {
+        name: /Ana Ferreira, week of .*50 hours capacity, draft capacity/,
+      }),
+    ).toHaveLength(3)
+    const latest = new URL(
+      String(fetchMock.mock.calls.at(-1)![0]),
+      'http://localhost',
+    ).searchParams
+    expect(latest.get('offset')).toBe('0')
+    expect(latest.get('search')).toBe('Ana')
+    expect(latest.get('status')).toBeNull()
+    expect(
+      fetchMock.mock.calls.every(([, options]) => options?.method !== 'PATCH'),
+    ).toBe(true)
+  })
+
+  it('opens saved project details during a scenario and keeps the proposed capacity after closing them', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }))
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).includes('/allocations?'))
+        return json({
+          person: { id: 1, name: 'Ana Ferreira', weeklyHours: 40 },
+          week: { start: '2025-12-29', end: '2026-01-04' },
+          allocatedHours: 45,
+          projects: [{ id: 1, name: 'Atlas', hours: 45, assignmentCount: 2 }],
+        })
+      return json(capacity())
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    const edit = await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Ana Ferreira',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Plan capacity' }))
+    fireEvent.click(edit)
+    fireEvent.change(
+      screen.getByRole('spinbutton', { name: 'Weekly hours for Ana Ferreira' }),
+      { target: { value: '50' } },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Stage change' }))
+    await screen.findByText('1 person changed')
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'View allocation details for Ana Ferreira',
+      }),
+    )
+    const dialog = within(
+      await screen.findByRole('dialog', { name: 'Ana Ferreira' }),
+    )
+    await dialog.findByRole('heading', { name: 'Atlas' })
+    expect(dialog.getByText('of 40 h saved weekly capacity')).toBeTruthy()
+    expect(dialog.getByText('50 h / week')).toBeTruthy()
+    expect(dialog.getByText('5 h over capacity')).toBeTruthy()
+    fireEvent.click(
+      dialog.getByRole('button', { name: 'Close allocation details' }),
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByText('1 person changed')).toBeTruthy()
+    expect(
+      screen.getAllByRole('cell', {
+        name: /Ana Ferreira, week of .*50 hours capacity, draft capacity/,
+      }),
+    ).toHaveLength(3)
+    expect(
+      fetchMock.mock.calls.every(([, options]) => options?.method !== 'PATCH'),
+    ).toBe(true)
+  })
+
   it('returns to the first matching page when saving removes the last overloaded person from the final page', async () => {
     let cured = false
     const requestedOffsets: number[] = []

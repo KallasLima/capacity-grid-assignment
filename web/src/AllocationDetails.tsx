@@ -7,6 +7,8 @@ type Props = {
   personName: string
   week: string
   onClose: () => void
+  planning?: boolean
+  draftWeeklyHours?: number
 }
 
 type AllocationBreakdown = {
@@ -32,6 +34,8 @@ export function AllocationDetails({
   personName,
   week,
   onClose,
+  planning = false,
+  draftWeeklyHours,
 }: Props) {
   const dialog = useRef<HTMLDialogElement>(null)
   const titleId = useId()
@@ -211,8 +215,22 @@ export function AllocationDetails({
                 <span> h</span>
               </p>
               <p className="allocation-details-capacity">
-                of {hours(data.person.weeklyHours)} h weekly capacity
+                of {hours(data.person.weeklyHours)} h{' '}
+                {planning ? 'saved weekly capacity' : 'weekly capacity'}
               </p>
+              {planning && (
+                <p className="allocation-details-draft-context">
+                  {draftWeeklyHours === undefined ? (
+                    'No staged capacity change for this person.'
+                  ) : (
+                    <>
+                      Draft limit:{' '}
+                      <strong>{hours(draftWeeklyHours)} h / week</strong>
+                      {' · '}preview
+                    </>
+                  )}
+                </p>
+              )}
               <div
                 className="allocation-details-capacity-track"
                 aria-hidden="true"
