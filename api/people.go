@@ -15,34 +15,76 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func decodeWeeklyHours(body io.Reader) (float64, error) {
-	var input struct {
-		WeeklyHours json.RawMessage `json:"weeklyHours"`
+type capacityUpdate struct {
+	WeeklyHours         float64
+	ExpectedWeeklyHours float64
+}
+
+func decodeCapacityUpdate(body io.Reader) (capacityUpdate, error) {
+	var raw struct {
+		WeeklyHours         json.RawMessage `json:"weeklyHours"`
+		ExpectedWeeklyHours json.RawMessage `json:"expectedWeeklyHours"`
 	}
 	decoder := json.NewDecoder(body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
-		return 0, err
+	if err := decoder.Decode(&raw); err != nil {
+		return capacityUpdate{}, err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); err == nil {
-		return 0, fmt.Errorf("expected one JSON object")
+		return capacityUpdate{}, fmt.Errorf("expected one JSON object")
 	} else if err != io.EOF {
-		return 0, err
+		return capacityUpdate{}, err
 	}
-	raw := bytes.TrimSpace(input.WeeklyHours)
+	hours, err := decodeHours(raw.WeeklyHours, "weeklyHours")
+	if err != nil {
+		return capacityUpdate{}, err
+	}
+	expected, err := decodeHours(raw.ExpectedWeeklyHours, "expectedWeeklyHours")
+	if err != nil {
+		return capacityUpdate{}, err
+	}
+	return capacityUpdate{WeeklyHours: hours, ExpectedWeeklyHours: expected}, nil
+}
+
+func decodeHours(raw json.RawMessage, field string) (float64, error) {
+	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return 0, fmt.Errorf("weeklyHours is required")
+		return 0, fmt.Errorf("%s is required", field)
 	}
 	var hours float64
 	if err := json.Unmarshal(raw, &hours); err != nil {
-		return 0, fmt.Errorf("weeklyHours must be a number")
+		return 0, fmt.Errorf("%s must be a number", field)
 	}
-	if math.IsNaN(hours) || math.IsInf(hours, 0) || hours < 0 || hours > 168 ||
-		hours != math.Round(hours*100)/100 {
-		return 0, fmt.Errorf("weeklyHours must be between 0 and 168 with at most two decimal places")
+	if math.IsNaN(hours) || math.IsInf(hours, 0) || hours < 0 || hours > 168 || hours != math.Round(hours*100)/100 {
+		return 0, fmt.Errorf("%s must be between 0 and 168 with at most two decimal places", field)
 	}
 	return hours, nil
+}
+
+var errCapacityConflict = errors.New("weekly capacity changed since this edit was opened")
+
+// The compare-and-set predicate makes competing updates atomic. If an earlier
+// response was lost, retrying the already-applied value confirms its success.
+func updatePersonCapacity(ctx context.Context, db capacityDB, id int64, update capacityUpdate) (person, error) {
+	var current person
+	err := db.QueryRow(ctx, `
+        UPDATE people SET weekly_hours = $1
+        WHERE id = $2 AND weekly_hours = $3
+        RETURNING id, name, weekly_hours::double precision`, update.WeeklyHours, id, update.ExpectedWeeklyHours).
+		Scan(&current.ID, &current.Name, &current.WeeklyHours)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return current, err
+	}
+	err = db.QueryRow(ctx, `SELECT id, name, weekly_hours::double precision FROM people WHERE id = $1`, id).
+		Scan(&current.ID, &current.Name, &current.WeeklyHours)
+	if err != nil {
+		return current, err
+	}
+	if current.WeeklyHours == update.WeeklyHours {
+		return current, nil
+	}
+	return current, errCapacityConflict
 }
 
 func (s *server) handleUpdatePerson(w http.ResponseWriter, r *http.Request) {
@@ -51,26 +93,27 @@ func (s *server) handleUpdatePerson(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid person ID."})
 		return
 	}
-	hours, err := decodeWeeklyHours(http.MaxBytesReader(w, r.Body, 4096))
+	update, err := decodeCapacityUpdate(http.MaxBytesReader(w, r.Body, 4096))
 	if err != nil {
 		status := http.StatusBadRequest
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			status = http.StatusRequestEntityTooLarge
 		}
-		writeJSON(w, status, map[string]string{"error": "Enter weekly hours from 0 to 168, with at most two decimal places."})
+		writeJSON(w, status, map[string]string{"error": "Enter weeklyHours and expectedWeeklyHours from 0 to 168, with at most two decimal places."})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), databaseTimeout)
 	defer cancel()
-	var updated person
-	err = s.db.QueryRow(ctx, `
-        UPDATE people SET weekly_hours = $1
-        WHERE id = $2
-        RETURNING id, name, weekly_hours::double precision`, hours, id).
-		Scan(&updated.ID, &updated.Name, &updated.WeeklyHours)
+	updated, err := updatePersonCapacity(ctx, s.db, id, update)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Person not found."})
+		return
+	}
+	if errors.Is(err, errCapacityConflict) {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "Weekly capacity changed since you opened this edit.", "person": updated,
+		})
 		return
 	}
 	if err != nil {

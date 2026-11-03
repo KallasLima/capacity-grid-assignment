@@ -145,3 +145,61 @@ func TestUpdateRejectsInvalidInputBeforeDatabaseAccess(t *testing.T) {
 		})
 	}
 }
+
+func TestCapacitySearchValidation(t *testing.T) {
+	values := url.Values{"from": {"2026-01-01"}, "to": {"2026-01-01"}, "search": {"  Élodie\u2003"}}
+	selected, err := parseCapacityRange(values)
+	if err != nil || selected.search != "Élodie" {
+		t.Fatalf("Unicode trim: %+v %v", selected, err)
+	}
+	values.Set("search", strings.Repeat("é", 100))
+	if _, err := parseCapacityRange(values); err != nil {
+		t.Fatal("100 runes should be accepted", err)
+	}
+	values.Set("search", strings.Repeat("é", 101))
+	if _, err := parseCapacityRange(values); err == nil {
+		t.Fatal("accepted oversized search")
+	}
+	values.Set("search", string([]byte{0xff}))
+	if _, err := parseCapacityRange(values); err == nil {
+		t.Fatal("accepted invalid UTF-8 search")
+	}
+}
+
+func TestCapacitySearchFiltersBeforePaginationAndEscapesWildcards(t *testing.T) {
+	ctx, tx := testTransaction(t)
+	_, err := tx.Exec(ctx, `
+        CREATE TEMP TABLE people (id int PRIMARY KEY, name text, weekly_hours numeric) ON COMMIT DROP;
+        CREATE TEMP TABLE assignments (id int PRIMARY KEY, person_id int, start_date date, end_date date, hours_per_day numeric) ON COMMIT DROP;
+        INSERT INTO people VALUES (1,'Ana',40),(2,'Bo',40),(3,'Élodie',32),(4,E'Bo _100%\\path',20);
+        INSERT INTO assignments VALUES (1,4,'2026-01-05','2026-01-09',2);
+    `)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := parseCapacityRange(url.Values{"from": {"2026-01-05"}, "to": {"2026-01-11"}, "search": {"bO"}, "limit": {"1"}, "offset": {"1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := loadCapacity(ctx, tx, selected)
+	if err != nil || result.Total != 2 || len(result.People) != 1 || result.People[0].ID != 4 || result.People[0].AllocatedHours[0] != 10 {
+		t.Fatalf("filtered stable page: %+v %v", result, err)
+	}
+	selected.offset = 0
+	selected.limit = 50
+	selected.search = `_100%\path`
+	literal, err := loadCapacity(ctx, tx, selected)
+	if err != nil || literal.Total != 1 || len(literal.People) != 1 || literal.People[0].ID != 4 {
+		t.Fatalf("literal wildcard/backslash: %+v %v", literal, err)
+	}
+	selected.search = "ÉLO"
+	unicode, err := loadCapacity(ctx, tx, selected)
+	if err != nil || unicode.Total != 1 || unicode.People[0].ID != 3 {
+		t.Fatalf("Unicode search: %+v %v", unicode, err)
+	}
+	selected.search = "missing"
+	empty, err := loadCapacity(ctx, tx, selected)
+	if err != nil || empty.Total != 0 || empty.People == nil || len(empty.People) != 0 {
+		t.Fatalf("empty search: %+v %v", empty, err)
+	}
+}

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -45,6 +47,7 @@ type capacityRange struct {
 	from, to time.Time
 	offset   int
 	limit    int
+	search   string
 }
 
 func parseCapacityRange(query url.Values) (capacityRange, error) {
@@ -81,7 +84,16 @@ func parseCapacityRange(query url.Values) (capacityRange, error) {
 			return capacityRange{}, fmt.Errorf("offset must be a non-negative integer")
 		}
 	}
+	result.search = strings.TrimSpace(query.Get("search"))
+	if !utf8.ValidString(result.search) || utf8.RuneCountInString(result.search) > 100 {
+		return capacityRange{}, fmt.Errorf("search must contain at most 100 valid characters")
+	}
 	return result, nil
+}
+
+// A search is a literal name fragment, never a LIKE wildcard expression.
+func searchPattern(search string) string {
+	return "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(search) + "%"
 }
 
 // Both pool and transaction satisfy this small boundary, allowing the real SQL
@@ -95,6 +107,7 @@ const capacityQuery = `
 WITH page AS MATERIALIZED (
     SELECT id, name, weekly_hours
     FROM people
+    WHERE name ILIKE $5 ESCAPE '\'
     ORDER BY name, id
     LIMIT $3 OFFSET $4
 ), weeks AS (
@@ -136,10 +149,10 @@ func loadCapacity(ctx context.Context, db capacityDB, selected capacityRange) (c
 			Start: start.Format(dateLayout), End: start.AddDate(0, 0, 6).Format(dateLayout),
 		})
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM people`).Scan(&result.Total); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM people WHERE name ILIKE $1 ESCAPE '\'`, searchPattern(selected.search)).Scan(&result.Total); err != nil {
 		return result, err
 	}
-	rows, err := db.Query(ctx, capacityQuery, result.From, result.To, selected.limit, selected.offset)
+	rows, err := db.Query(ctx, capacityQuery, result.From, result.To, selected.limit, selected.offset, searchPattern(selected.search))
 	if err != nil {
 		return result, err
 	}
