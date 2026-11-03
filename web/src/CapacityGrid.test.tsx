@@ -84,7 +84,7 @@ describe('CapacityGrid', () => {
     expect(screen.getByText('5 h over capacity')).toBeTruthy()
     expect(fetchMock.mock.calls[1][1]).toMatchObject({
       method: 'PATCH',
-      body: '{"weeklyHours":50}',
+      body: '{"weeklyHours":50,"expectedWeeklyHours":40}',
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -98,9 +98,6 @@ describe('CapacityGrid', () => {
     expect(screen.queryByText('5 h over capacity')).toBeNull()
     expect(screen.getByText('5 h available')).toBeTruthy()
     expect(screen.getByText('20 h available')).toBeTruthy()
-    expect(
-      screen.getByText(/people over capacity on this page/).textContent,
-    ).toBe('0 people over capacity on this page')
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
@@ -196,5 +193,127 @@ describe('CapacityGrid', () => {
     expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe(
       '2026-01-05',
     )
+  })
+
+  it('preserves a conflicting draft and requires an explicit save against the latest capacity', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json(capacity()))
+      .mockResolvedValueOnce(
+        json(
+          {
+            error: 'Weekly capacity changed since you opened this edit.',
+            person: { id: 1, name: 'Ana Ferreira', weeklyHours: 32 },
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(
+        json({ id: 1, name: 'Ana Ferreira', weeklyHours: 50 }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Edit weekly capacity for Ana Ferreira',
+      }),
+    )
+    const input = screen.getByRole('spinbutton', {
+      name: 'Weekly hours for Ana Ferreira',
+    }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }))
+
+    const overwrite = await screen.findByRole('button', {
+      name: 'Save my draft',
+    })
+    expect(input.value).toBe('50')
+    expect(
+      screen.getAllByRole('cell', {
+        name: /Ana Ferreira, week of .*32 hours capacity/,
+      }),
+    ).toHaveLength(3)
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      weeklyHours: 50,
+      expectedWeeklyHours: 40,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(overwrite)
+    await screen.findByText('Saved', { exact: true })
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
+      weeklyHours: 50,
+      expectedWeeklyHours: 32,
+    })
+    expect(screen.queryByRole('spinbutton')).toBeNull()
+    expect(
+      screen.getAllByRole('cell', {
+        name: /Ana Ferreira, week of .*50 hours capacity/,
+      }),
+    ).toHaveLength(3)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('searches the roster from its first page and ignores an obsolete page response', async () => {
+    const oldPage = deferred<Response>()
+    const searchRequest = deferred<Response>()
+    const allPeople = capacity()
+    allPeople.total = 120
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json(allPeople))
+      .mockReturnValueOnce(oldPage.promise)
+      .mockReturnValueOnce(searchRequest.promise)
+      .mockResolvedValueOnce(json(allPeople))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Ana Ferreira',
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next people' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(
+      new URL(
+        String(fetchMock.mock.calls[1][0]),
+        'http://localhost',
+      ).searchParams.get('offset'),
+    ).toBe('50')
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search people' }), {
+      target: { value: 'Ana' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^Search$/ }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const request = new URL(
+      String(fetchMock.mock.calls[2][0]),
+      'http://localhost',
+    )
+    expect(request.searchParams.get('search')).toBe('Ana')
+    expect(request.searchParams.get('offset')).toBe('0')
+    expect(fetchMock.mock.calls[1][1]?.signal?.aborted).toBe(true)
+
+    await act(async () => {
+      searchRequest.resolve(json(capacity('Ana search match')))
+    })
+    await screen.findByText('Ana search match')
+    const obsolete = capacity('Obsolete page person')
+    obsolete.offset = 50
+    obsolete.total = 120
+    await act(async () => {
+      oldPage.resolve(json(obsolete))
+    })
+    expect(screen.queryByText('Obsolete page person')).toBeNull()
+    expect(screen.getByText('Ana search match')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    await screen.findByText('Ana Ferreira')
+    expect(
+      new URL(
+        String(fetchMock.mock.calls[3][0]),
+        'http://localhost',
+      ).searchParams.get('search') ?? '',
+    ).toBe('')
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 })

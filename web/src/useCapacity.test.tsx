@@ -48,7 +48,7 @@ describe('useCapacity save reconciliation', () => {
     act(() => result.current.reload())
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     await act(async () => {
-      await result.current.savePerson(1, 50)
+      await result.current.savePerson(1, 50, 40)
     })
     await act(async () => {
       finishOlderGet(json(capacity(40)))
@@ -73,7 +73,7 @@ describe('useCapacity save reconciliation', () => {
     )
 
     await act(async () => {
-      await result.current.savePerson(1, 50)
+      await result.current.savePerson(1, 50, 40)
     })
     expect(result.current.data?.people[0].weeklyHours).toBe(50)
     act(() => result.current.reload())
@@ -82,5 +82,44 @@ describe('useCapacity save reconciliation', () => {
       expect(result.current.data?.people[0].weeklyHours).toBe(24),
     )
     expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('includes search in request identity and keeps the latest search when an old response arrives', async () => {
+    let finishOld!: (value: Response) => void
+    const old = new Promise<Response>((resolve) => {
+      finishOld = resolve
+    })
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockReturnValueOnce(old)
+      .mockResolvedValueOnce(
+        json({
+          ...capacity(40),
+          people: [
+            { id: 2, name: 'Bo', weeklyHours: 40, allocatedHours: [32] },
+          ],
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const { result, rerender } = renderHook(
+      ({ search }) => useCapacity({ ...query, search }),
+      {
+        initialProps: { search: 'Ana' },
+      },
+    )
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    rerender({ search: 'Bo' })
+    await waitFor(() => expect(result.current.data?.people[0].name).toBe('Bo'))
+    expect(
+      new URL(
+        String(fetchMock.mock.calls[1][0]),
+        'http://localhost',
+      ).searchParams.get('search'),
+    ).toBe('Bo')
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true)
+    await act(async () => {
+      finishOld(json(capacity(40)))
+    })
+    expect(result.current.data?.people[0].name).toBe('Bo')
   })
 })

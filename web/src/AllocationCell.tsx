@@ -21,9 +21,14 @@ export function AllocationCell({
       <div className="allocation-numbers">
         <strong>
           {hours(allocated)}
-          <span> h</span>
+          <span>h</span>
         </strong>
-        <span>/ {hours(capacity)} h</span>
+        <span>/ {hours(capacity)}h</span>
+        {over && (
+          <span className="over-icon" aria-hidden="true">
+            !
+          </span>
+        )}
       </div>
       <div className="meter" aria-hidden="true">
         <span style={{ width: `${percentage}%` }} />

@@ -1,5 +1,11 @@
 import { useRef, useState, type FormEvent } from 'react'
-import { capacityInput, hours, type Person } from './capacity'
+import {
+  capacityInput,
+  hours,
+  CapacityConflictError,
+  type Person,
+  type CanonicalPerson,
+} from './capacity'
 
 export function CapacityEditor({
   person,
@@ -10,7 +16,7 @@ export function CapacityEditor({
 }: {
   person: Person
   busy: boolean
-  save: (id: number, hours: number) => Promise<void>
+  save: (id: number, hours: number, expectedHours: number) => Promise<void>
   onEditing: (id: number | null) => void
   onReconcile: (id: number) => void
 }) {
@@ -18,6 +24,9 @@ export function CapacityEditor({
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  const [conflict, setConflict] = useState<CanonicalPerson | null>(null)
+  const expectedHours = useRef(person.weeklyHours)
+  const hoursInput = useRef<HTMLInputElement>(null)
   const editButton = useRef<HTMLButtonElement>(null)
   const unsuccessfulSave = useRef(false)
   function close() {
@@ -39,18 +48,23 @@ export function CapacityEditor({
     }
     setError('')
     try {
-      await save(person.id, value)
+      await save(person.id, value, expectedHours.current)
       unsuccessfulSave.current = false
       close()
       setSaved(true)
     } catch (failure) {
       // A transport failure can happen after the server commits the update.
       unsuccessfulSave.current = true
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : 'Save failed. Please try again.',
-      )
+      if (failure instanceof CapacityConflictError) {
+        setConflict(failure.currentPerson)
+        expectedHours.current = failure.currentPerson.weeklyHours
+      } else
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : 'Save failed. Please try again.',
+        )
+      requestAnimationFrame(() => hoursInput.current?.focus())
     }
   }
   if (!editing)
@@ -68,6 +82,8 @@ export function CapacityEditor({
             onEditing(person.id)
             setSaved(false)
             setError('')
+            setConflict(null)
+            expectedHours.current = person.weeklyHours
             unsuccessfulSave.current = false
           }}
         >
@@ -93,6 +109,7 @@ export function CapacityEditor({
         Weekly hours for {person.name}
       </label>
       <input
+        ref={hoursInput}
         id={`hours-${person.id}`}
         type="number"
         inputMode="decimal"
@@ -107,14 +124,20 @@ export function CapacityEditor({
         }}
         disabled={busy}
         aria-invalid={!!error}
-        aria-describedby={error ? `error-${person.id}` : undefined}
+        aria-describedby={
+          error
+            ? `error-${person.id}`
+            : conflict
+              ? `conflict-${person.id}`
+              : undefined
+        }
         onKeyDown={(event) => {
           if (event.key === 'Escape' && !busy) close()
         }}
       />
       <div className="editor-actions">
         <button className="save-button" disabled={busy} type="submit">
-          {busy ? 'Saving…' : 'Save'}
+          {busy ? 'Saving…' : conflict ? 'Save my draft' : 'Save'}
         </button>
         <button
           className="text-button"
@@ -129,6 +152,17 @@ export function CapacityEditor({
         <p className="field-error" id={`error-${person.id}`} role="alert">
           {error}
         </p>
+      )}
+      {conflict && (
+        <div
+          className="conflict-note"
+          id={`conflict-${person.id}`}
+          role="alert"
+        >
+          <strong>Capacity changed elsewhere</strong>
+          <p>Current: {hours(conflict.weeklyHours)} h / week.</p>
+          <p>Your draft is kept. Save it explicitly or cancel.</p>
+        </div>
       )}
       <span className="editor-help">Applies to every week</span>
     </form>

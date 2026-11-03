@@ -14,7 +14,20 @@ export type Capacity = {
   offset: number
   limit: number
 }
-export type Query = { from: string; to: string; offset: number }
+export type Query = {
+  from: string
+  to: string
+  offset: number
+  search?: string
+}
+export type CanonicalPerson = Pick<Person, 'id' | 'name' | 'weeklyHours'>
+
+export class CapacityConflictError extends Error {
+  constructor(readonly currentPerson: CanonicalPerson) {
+    super('Weekly capacity changed since you opened this edit.')
+    this.name = 'CapacityConflictError'
+  }
+}
 
 const hourFormatter = new Intl.NumberFormat('en', { maximumFractionDigits: 2 })
 export const hours = (value: number) => hourFormatter.format(value)
@@ -25,6 +38,15 @@ export const dateLabel = (
   new Intl.DateTimeFormat('en', { ...options, timeZone: 'UTC' }).format(
     new Date(`${value}T12:00:00Z`),
   )
+
+export function dateRangeLabel(from: string, to: string) {
+  const end = dateLabel(to, { month: 'short', day: 'numeric', year: 'numeric' })
+  const start =
+    from.slice(0, 4) === to.slice(0, 4)
+      ? dateLabel(from)
+      : dateLabel(from, { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${start} – ${end}`
+}
 
 export function shiftDate(value: string, days: number) {
   const date = new Date(`${value}T12:00:00Z`)
@@ -52,7 +74,30 @@ export async function readResponse<T>(response: Response): Promise<T> {
           typeof parsed.error === 'string'
         )
           message = parsed.error
-      } catch {
+        if (
+          response.status === 409 &&
+          parsed &&
+          typeof parsed === 'object' &&
+          'person' in parsed
+        ) {
+          const person = parsed.person
+          if (
+            person &&
+            typeof person === 'object' &&
+            'id' in person &&
+            'name' in person &&
+            'weeklyHours' in person &&
+            typeof person.id === 'number' &&
+            Number.isInteger(person.id) &&
+            typeof person.name === 'string' &&
+            typeof person.weeklyHours === 'number' &&
+            Number.isFinite(person.weeklyHours)
+          ) {
+            throw new CapacityConflictError(person as CanonicalPerson)
+          }
+        }
+      } catch (error) {
+        if (error instanceof CapacityConflictError) throw error
         message = ''
       }
     }

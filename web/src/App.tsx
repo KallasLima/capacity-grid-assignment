@@ -6,16 +6,21 @@ export function App() {
       <header className="app-header">
         <a href="/" className="brand" aria-label="Capacity home">
           <span className="brand-mark" aria-hidden="true">
-            c
+            <span />
           </span>
-          <span>capacity</span>
+          <span>
+            capacity<span className="brand-period">.</span>
+          </span>
         </a>
         <span className="header-divider" />
         <span className="workspace-name">Team workspace</span>
-        <span className="header-label">CAPACITY PLANNING</span>
+        <span className="header-label">
+          <span />
+          Planning workspace
+        </span>
       </header>
       <main>
-        <CapacityGrid from="2025-12-29" to="2026-01-16" />
+        <CapacityGrid from="2025-12-29" to="2026-02-08" />
       </main>
     </div>
   )

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   readResponse,
+  CapacityConflictError,
+  type CanonicalPerson,
   type Capacity,
-  type Person,
   type Query,
 } from './capacity'
 
@@ -14,7 +15,8 @@ type Snapshot = {
 }
 
 export function useCapacity(query: Query) {
-  const key = `${query.from}/${query.to}/${query.offset}`
+  const search = query.search?.trim() ?? ''
+  const key = `${query.from}/${query.to}/${query.offset}/${search}`
   const [revision, setRevision] = useState(0)
   const [snapshot, setSnapshot] = useState<Snapshot>({
     key: '',
@@ -42,6 +44,7 @@ export function useCapacity(query: Query) {
       offset: String(query.offset),
       limit: '50',
     })
+    if (search) params.set('search', search)
     fetch(`/api/capacity?${params}`, { signal: controller.signal })
       .then(readResponse<Capacity>)
       .then((data) => {
@@ -76,57 +79,66 @@ export function useCapacity(query: Query) {
       controller.abort()
       window.clearTimeout(timeout)
     }
-  }, [key, query.from, query.to, query.offset, revision])
+  }, [key, query.from, query.to, query.offset, search, revision])
 
-  const savePerson = useCallback(async (id: number, weeklyHours: number) => {
-    setSavingId(id)
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 15_000)
-    try {
-      const person = await fetch(`/api/people/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weeklyHours }),
-        signal: controller.signal,
-      }).then(readResponse<Pick<Person, 'id' | 'name' | 'weeklyHours'>>)
-      savedHours.current.set(person.id, {
-        hours: person.weeklyHours,
-        version: ++mutationVersion.current,
-      })
-      setSnapshot((current) =>
-        current.data
-          ? {
-              ...current,
-              data: {
-                ...current.data,
-                people: current.data.people.map((row) =>
-                  row.id === person.id
-                    ? {
-                        ...row,
-                        name: person.name,
-                        weeklyHours: person.weeklyHours,
-                      }
-                    : row,
-                ),
-              },
-            }
-          : current,
-      )
-    } catch (error) {
-      if (controller.signal.aborted)
-        throw new Error(
-          'Save timed out. Your draft is kept; retry, or cancel to reload current capacity.',
-        )
-      if (error instanceof TypeError)
-        throw new Error(
-          'Save was not confirmed. Your draft is kept; retry, or cancel to reload current capacity.',
-        )
-      throw error
-    } finally {
-      window.clearTimeout(timeout)
-      setSavingId(null)
-    }
+  const acceptPerson = useCallback((person: CanonicalPerson) => {
+    savedHours.current.set(person.id, {
+      hours: person.weeklyHours,
+      version: ++mutationVersion.current,
+    })
+    setSnapshot((current) =>
+      current.data
+        ? {
+            ...current,
+            data: {
+              ...current.data,
+              people: current.data.people.map((row) =>
+                row.id === person.id
+                  ? {
+                      ...row,
+                      name: person.name,
+                      weeklyHours: person.weeklyHours,
+                    }
+                  : row,
+              ),
+            },
+          }
+        : current,
+    )
   }, [])
+
+  const savePerson = useCallback(
+    async (id: number, weeklyHours: number, expectedWeeklyHours: number) => {
+      setSavingId(id)
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 15_000)
+      try {
+        const person = await fetch(`/api/people/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ weeklyHours, expectedWeeklyHours }),
+          signal: controller.signal,
+        }).then(readResponse<CanonicalPerson>)
+        acceptPerson(person)
+      } catch (error) {
+        if (error instanceof CapacityConflictError)
+          acceptPerson(error.currentPerson)
+        if (controller.signal.aborted)
+          throw new Error(
+            'Save timed out. Your draft is kept; retry, or cancel to reload current capacity.',
+          )
+        if (error instanceof TypeError)
+          throw new Error(
+            'Save was not confirmed. Your draft is kept; retry, or cancel to reload current capacity.',
+          )
+        throw error
+      } finally {
+        window.clearTimeout(timeout)
+        setSavingId(null)
+      }
+    },
+    [acceptPerson],
+  )
 
   const reload = useCallback(() => {
     // Clear stale values synchronously, including after an uncertain write.
