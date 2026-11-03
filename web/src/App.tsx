@@ -1,5 +1,6 @@
 import { CapacityGrid } from './CapacityGrid'
 
+// Use a fixed window that exposes the supplied seed's golden allocation cases.
 export function App() {
   return (
     <div className="app-shell">

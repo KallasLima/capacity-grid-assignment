@@ -39,3 +39,7 @@ left unfinished. Append as you go; a line or two per entry is right.
 ## Presentation checkpoint, November 3, 2026: 26 frontend tests
 
 - Compacted the grid presentation and date-range controls, restored focus to the custom-date trigger after apply, and clarified recovery when the matching roster shrinks past the current page. The current frontend suite contains 26 tests; the backend suite contains 17 tests. README now leads with the implemented workflow and a short review tour; the exact original brief is preserved in ASSIGNMENT.md and detailed contracts in docs/API.md.
+
+## Presentation follow-up, November 3, 2026
+
+- Added source comments, logical spacing, CSS sections, clickable architecture references, and clearer API examples. Removed nine superseded identical CSS declarations. A narrow-screen check with fractional summary totals found horizontal overflow; the summary now uses two columns below 421px. Browser comparisons covered seven widths and grid, scenario, and project-detail states; emitted frontend JavaScript and executable Go tokens remain unchanged. The 26 frontend tests and production build pass, and README screenshots reflect the updated layout.

@@ -10,6 +10,9 @@ export function CapacityPlanPanel({
   disabled?: boolean
 }) {
   if (!plan.active) return null
+
+  // Impact compares the saved baseline with proposed limits for planned people
+  // and the locked date range, independently of the currently visible roster page.
   const before = plan.drafts.reduce(
     (sum, draft) =>
       sum +
@@ -17,16 +20,19 @@ export function CapacityPlanPanel({
         .length,
     0,
   )
+
   const after = plan.drafts.reduce(
     (sum, draft) =>
       sum +
       draft.allocatedHours.filter((value) => value > draft.weeklyHours).length,
     0,
   )
+
   const delta = plan.drafts.reduce(
     (sum, draft) => sum + draft.weeklyHours - draft.expectedWeeklyHours,
     0,
   )
+
   return (
     <section className="capacity-plan" aria-label="Capacity scenario">
       <div className="capacity-plan-heading">

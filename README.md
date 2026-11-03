@@ -22,7 +22,7 @@ project assignments. Plans are local to the open browser view.
 
 The six-week grid shows saved allocation and capacity, with overloads emphasized.
 
-![Desktop capacity grid with overload filtering and inline capacity editing](docs/images/capacity-desktop.png)
+![Six-week capacity grid showing allocated hours, recurring limits, and highlighted overloads](docs/images/capacity-desktop.png)
 
 <details>
 <summary>Scenario preview and mobile layout</summary>
@@ -60,14 +60,14 @@ uncommitted Compose override. This local scaffold has no authentication.
 ## Two-minute tour
 
 1. Search for **Dee**. In the week of January 5, 2026, their allocation is **45/40 h**.
-   Open their name: Atlas contributes 30 h and Corvus 15 h. Clear search to inspect
+   Select Dee's name: Atlas contributes 30 h and Corvus 15 h. Clear search to inspect
    Eli's **20/0 h**, which also counts as overload without an infinite percentage.
 2. Edit Dee's weekly limit, save, and check all displayed weeks. Reload to confirm
    persistence. To check conflicts, open the same person's editor in two tabs before
    saving either. Save in the first, then submit a different value in the second.
 3. Choose **Plan capacity**, stage limits for two people, and inspect the preview.
-   Another tab retains saved values until **Apply plan** succeeds. Discarding a draft
-   reloads current saved values.
+   Saved values remain unchanged until **Apply plan** succeeds; reload another tab
+   to check persistence. Discarding a draft reloads current saved values.
 
 ## Verify
 

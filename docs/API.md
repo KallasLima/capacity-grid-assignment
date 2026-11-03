@@ -7,6 +7,8 @@ matching roster. Capacity changes apply to every week for that person.
 The initial six-week view runs from December 29, 2025 through February 8, 2026.
 Range presets cover 3, 6, or 12 weeks; the mobile view keeps one selected week readable.
 
+## Reading capacity
+
 `GET /api/capacity?from=2025-12-29&to=2026-01-16&offset=0&limit=50` returns normalized
 `from`/`to` dates, `weeks` with `start`/`end`, and `people` with `id`, `name`,
 `weeklyHours`, and an aligned `allocatedHours` array. `total`, `offset`, and `limit`
@@ -25,7 +27,12 @@ The response's `summary` covers the entire eligible roster after search and stat
 filtering, across every selected week:
 
 ```json
-{"people":120,"overCapacityPeople":17,"allocatedHours":12345,"availableHours":6789}
+{
+  "people": 120,
+  "overCapacityPeople": 17,
+  "allocatedHours": 12345,
+  "availableHours": 6789
+}
 ```
 
 `availableHours` sums positive remaining capacity per person-week, so one person's
@@ -33,10 +40,15 @@ overload does not cancel another person's available hours. The summary is separa
 from the visible page's overload count. Saving while a priority filter or sort is
 active refreshes the page so membership and ordering remain correct.
 
+## Updating weekly capacity
+
 `PATCH /api/people/{id}` requires both values:
 
 ```json
-{"weeklyHours":32,"expectedWeeklyHours":40}
+{
+  "weeklyHours": 32,
+  "expectedWeeklyHours": 40
+}
 ```
 
 The update atomically checks that stored capacity still equals `expectedWeeklyHours`,
@@ -51,7 +63,7 @@ Invalid input returns 400, a missing person returns 404, and oversized bodies re
 413. Allocation sums all overlapping assignment records on weekdays, including
 distinct records with identical values. See [DECISIONS.md](../DECISIONS.md) for the choices.
 
-### Capacity scenarios
+## Capacity scenarios
 
 Choose **Plan capacity**, edit recurring weekly limits, and **Stage change**. Staging
 only updates the in-memory preview; it sends no write request. The scenario shows
@@ -85,7 +97,7 @@ refresh**. **Discard plan** also refreshes saved values. Applying, discarding, o
 removing changes is disabled while an inline editor is open. Plans have no durable
 storage or shared-editing mechanism.
 
-### Allocation breakdown
+## Allocation breakdown
 
 Click a team member's name to open their project breakdown, then move between weeks
 inside the drawer. `GET /api/people/4/allocations?week=2026-01-05` returns `person`,
@@ -98,7 +110,7 @@ For Dee in the week of January 5, the total is 45 hours: Atlas contributes 30 ho
 from 15 assignment rows, and Corvus contributes 15 hours from 15 rows. Compare that sum
 with the grid, then change weeks and close the drawer to return to the same person.
 
-### Checks
+## Checks
 
 With the application running through `make up`, run:
 
@@ -120,13 +132,15 @@ filtering, ordering, search, and first/last pages matched. In that isolated loca
 fixture, sampled 105-week requests took 1.28–1.30 seconds. These sequential local
 observations use repeated seed patterns; concurrent production workloads remain
 unmeasured. The browser also rendered 50 people across 105 weeks without page overflow.
+
 To inspect the grid's numbers, use the week of
 January 5, 2026: Bo is 32/40 hours, Cem 4/20, Dee 45/40, and Eli 20/0. Edit a capacity,
 check every displayed week, then reload to verify persistence. A failed save should
 retain the typed value and allow retry.
 
-To check a conflict, open the same person in two browser tabs. Save a change in the
-first, then submit a different draft from the second. The second tab should show the
+To check a conflict, open the same person's editor in two browser tabs before saving
+either. Save a change in the first, then submit a different draft from the second.
+The second tab should show the
 new server value without overwriting it and retain its draft for **Save my draft**
 or Cancel.
 

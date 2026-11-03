@@ -18,6 +18,7 @@ type server struct {
 func main() {
 	ctx := context.Background()
 
+	// Compose supplies DATABASE_URL; the fallback keeps the same seeded local setup.
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		dsn = "postgres://capacity:capacity@localhost:5432/capacity?sslmode=disable"
@@ -29,6 +30,7 @@ func main() {
 	}
 	defer db.Close()
 
+	// Startup can race database readiness even after the containers have started.
 	for i := 0; i < 30; i++ {
 		if err = db.Ping(ctx); err == nil {
 			break
@@ -41,6 +43,7 @@ func main() {
 
 	s := &server{db: db}
 
+	// Handlers own validation, compare-and-set checks, and mutation atomicity.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/capacity", s.handleCapacity)
@@ -58,6 +61,7 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "people": people})
 }
 

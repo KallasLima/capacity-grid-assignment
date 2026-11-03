@@ -14,19 +14,19 @@ flowchart LR
 
 | File | Responsibility |
 |---|---|
-| `web/src/CapacityGrid.tsx` | Range, search, priority controls, pagination, and table composition |
-| `web/src/useCapacity.ts` | Server snapshots, request cancellation, individual saves, reconciliation |
-| `web/src/CapacityEditor.tsx` | Local input draft, validation, conflict choice, keyboard recovery |
-| `web/src/useCapacityPlan.ts` | Browser-local scenario drafts and atomic apply lifecycle |
-| `web/src/CapacityPlanPanel.tsx` | Proposed changes and before/after impact review |
-| `web/src/AllocationCell.tsx` | Allocation ratio, visual meter, and overload exception |
-| `web/src/AllocationDetails.tsx` | Read-only weekly project breakdown in a native dialog |
-| `web/src/capacity.ts` | Shared response types, calendar formatting, and input parsing |
-| `api/main.go` | HTTP routes and database connection pool |
-| `api/capacity.go` | Range validation and roster-wide weekly aggregation |
-| `api/people.go` | Individual compare-and-set capacity updates |
-| `api/plan.go` | Atomic multi-person capacity changes |
-| `api/allocations.go` | Person/week project contribution queries |
+| [web/src/CapacityGrid.tsx](../web/src/CapacityGrid.tsx) | Range, search, priority controls, pagination, and table composition |
+| [web/src/useCapacity.ts](../web/src/useCapacity.ts) | Server snapshots, request cancellation, individual saves, reconciliation |
+| [web/src/CapacityEditor.tsx](../web/src/CapacityEditor.tsx) | Local input draft, validation, conflict choice, keyboard recovery |
+| [web/src/useCapacityPlan.ts](../web/src/useCapacityPlan.ts) | Browser-local scenario drafts and atomic apply lifecycle |
+| [web/src/CapacityPlanPanel.tsx](../web/src/CapacityPlanPanel.tsx) | Proposed changes and before/after impact review |
+| [web/src/AllocationCell.tsx](../web/src/AllocationCell.tsx) | Allocation ratio, visual meter, and overload exception |
+| [web/src/AllocationDetails.tsx](../web/src/AllocationDetails.tsx) | Read-only weekly project breakdown in a native dialog |
+| [web/src/capacity.ts](../web/src/capacity.ts) | Shared response types, calendar formatting, and input parsing |
+| [api/main.go](../api/main.go) | HTTP routes and database connection pool |
+| [api/capacity.go](../api/capacity.go) | Range validation and roster-wide weekly aggregation |
+| [api/people.go](../api/people.go) | Individual compare-and-set capacity updates |
+| [api/plan.go](../api/plan.go) | Atomic multi-person capacity changes |
+| [api/allocations.go](../api/allocations.go) | Person/week project contribution queries |
 
 Paths above are relative to the repository root. The API and hooks own data rules;
 components own presentation and interaction state.

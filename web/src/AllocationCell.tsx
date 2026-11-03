@@ -9,17 +9,23 @@ export function AllocationCell({
   capacity: number
 }) {
   const over = allocated > capacity
+
+  // Clamp only the visual meter. The numeric ratio preserves the full overload,
+  // including allocated work against a zero-capacity person.
   const percentage =
     capacity > 0
       ? Math.min(100, (allocated / capacity) * 100)
       : allocated > 0
         ? 100
         : 0
+
+  // Routine headroom stays secondary; the visible caption is reserved for overloads.
   const detail = over
     ? `${hours(allocated - capacity)} h over capacity`
     : allocated === 0
       ? 'No allocation'
       : `${hours(capacity - allocated)} h available`
+
   return (
     <div
       className={`allocation compact-allocation ${over ? 'over' : allocated === 0 ? 'unallocated' : ''}`}
