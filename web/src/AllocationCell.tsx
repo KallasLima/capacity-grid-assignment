@@ -1,4 +1,5 @@
 import { hours } from './capacity'
+import './AllocationCell.css'
 
 export function AllocationCell({
   allocated,
@@ -14,32 +15,30 @@ export function AllocationCell({
       : allocated > 0
         ? 100
         : 0
+  const detail = over
+    ? `${hours(allocated - capacity)} h over capacity`
+    : allocated === 0
+      ? 'No allocation'
+      : `${hours(capacity - allocated)} h available`
   return (
     <div
-      className={`allocation ${over ? 'over' : allocated === 0 ? 'unallocated' : ''}`}
+      className={`allocation compact-allocation ${over ? 'over' : allocated === 0 ? 'unallocated' : ''}`}
+      title={detail}
     >
       <div className="allocation-numbers">
-        <strong>
-          {hours(allocated)}
-          <span>h</span>
-        </strong>
-        <span>/ {hours(capacity)}h</span>
-        {over && (
-          <span className="over-icon" aria-hidden="true">
-            !
-          </span>
-        )}
+        <strong>{hours(allocated)}</strong>
+        <span className="allocation-capacity">
+          / {hours(capacity)} <span>h</span>
+        </span>
       </div>
       <div className="meter" aria-hidden="true">
         <span style={{ width: `${percentage}%` }} />
       </div>
-      <span className="allocation-caption">
-        {over
-          ? `${hours(allocated - capacity)} h over capacity`
-          : allocated === 0
-            ? 'No allocation'
-            : `${hours(capacity - allocated)} h available`}
-      </span>
+      {over && (
+        <span className="allocation-caption">
+          +{hours(allocated - capacity)} h over
+        </span>
+      )}
     </div>
   )
 }

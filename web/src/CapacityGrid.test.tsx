@@ -48,6 +48,91 @@ function deferred<T>() {
 }
 
 describe('CapacityGrid', () => {
+  it('returns to the first matching page when saving removes the last overloaded person from the final page', async () => {
+    let cured = false
+    const requestedOffsets: number[] = []
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      id: index + 1,
+      name: `Team member ${String(index + 1).padStart(2, '0')}`,
+      weeklyHours: 40,
+      allocatedHours: [45, 30, 0],
+    }))
+    const lastPerson = {
+      id: 51,
+      name: 'Zoe Last',
+      weeklyHours: 40,
+      allocatedHours: [45, 30, 0],
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input, options) => {
+      if (options?.method === 'PATCH') {
+        expect(String(input)).toBe('/api/people/51')
+        expect(JSON.parse(String(options.body))).toEqual({
+          weeklyHours: 50,
+          expectedWeeklyHours: 40,
+        })
+        cured = true
+        return json({ id: 51, name: lastPerson.name, weeklyHours: 50 })
+      }
+      const params = new URL(String(input), 'http://localhost').searchParams
+      const offset = Number(params.get('offset'))
+      requestedOffsets.push(offset)
+      const total = cured && params.get('status') === 'over' ? 50 : 51
+      return json({
+        ...capacity(),
+        offset,
+        total,
+        people: offset === 0 ? firstPage : total === 51 ? [lastPerson] : [],
+        summary: {
+          people: total,
+          overCapacityPeople: total,
+          allocatedHours: total * 75,
+          availableHours: total * 50,
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CapacityGrid from="2025-12-29" to="2026-01-16" />)
+    await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Team member 01',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Over capacity only' }))
+    await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Team member 01',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Next people' }))
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Edit weekly capacity for Zoe Last',
+      }),
+    )
+    fireEvent.change(
+      screen.getByRole('spinbutton', {
+        name: 'Weekly hours for Zoe Last',
+      }),
+      { target: { value: '50' } },
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await screen.findByRole('button', {
+      name: 'Edit weekly capacity for Team member 01',
+    })
+    expect(screen.getByText('1–50 of 50')).toBeTruthy()
+    expect(
+      screen.getAllByRole('button', {
+        name: /^Edit weekly capacity for/,
+      }),
+    ).toHaveLength(50)
+    expect(requestedOffsets.slice(-2)).toEqual([50, 0])
+    expect(screen.queryByText('Everyone is within capacity')).toBeNull()
+    expect(
+      screen
+        .getByRole('button', {
+          name: 'Over capacity only',
+        })
+        .getAttribute('aria-pressed'),
+    ).toBe('true')
+  })
+
   it('clears the Drafted confirmation when a staged change is removed or returned to its saved value', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -205,7 +290,7 @@ describe('CapacityGrid', () => {
         name: /Ana Ferreira, week of .*40 hours capacity/,
       }),
     ).toHaveLength(3)
-    expect(screen.getByText('5 h over capacity')).toBeTruthy()
+    expect(screen.getByTitle('5 h over capacity')).toBeTruthy()
     expect(fetchMock.mock.calls[1][1]).toMatchObject({
       method: 'PATCH',
       body: '{"weeklyHours":50,"expectedWeeklyHours":40}',
@@ -219,9 +304,9 @@ describe('CapacityGrid', () => {
         name: /Ana Ferreira, week of .*50 hours capacity/,
       }),
     ).toHaveLength(3)
-    expect(screen.queryByText('5 h over capacity')).toBeNull()
-    expect(screen.getByText('5 h available')).toBeTruthy()
-    expect(screen.getByText('20 h available')).toBeTruthy()
+    expect(screen.queryByTitle('5 h over capacity')).toBeNull()
+    expect(screen.getByTitle('5 h available')).toBeTruthy()
+    expect(screen.getByTitle('20 h available')).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
@@ -314,6 +399,8 @@ describe('CapacityGrid', () => {
     })
     expect(screen.queryByText('Obsolete range person')).toBeNull()
     expect(screen.getByText('Latest range person')).toBeTruthy()
+    if (!screen.queryByLabelText('From'))
+      fireEvent.click(screen.getByRole('button', { name: /Custom dates/ }))
     expect((screen.getByLabelText('From') as HTMLInputElement).value).toBe(
       '2026-01-05',
     )

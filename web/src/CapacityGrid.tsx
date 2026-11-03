@@ -42,6 +42,7 @@ export function CapacityGrid({ from, to }: Props) {
   const [range, setRange] = useState({ from, to })
   const [search, setSearch] = useState('')
   const [rangeError, setRangeError] = useState('')
+  const [customDates, setCustomDates] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [mobileWeek, setMobileWeek] = useState(0)
   const [details, setDetails] = useState<{
@@ -111,6 +112,21 @@ export function CapacityGrid({ from, to }: Props) {
   useEffect(() => {
     setMobileWeek(0)
   }, [query.from, query.to])
+  useEffect(() => {
+    if (
+      !loading &&
+      data &&
+      query.offset > 0 &&
+      data.people.length === 0 &&
+      data.total > 0
+    ) {
+      focusAfterReload.current ??= -1
+      setQuery((current) => ({
+        ...current,
+        offset: Math.floor((data.total - 1) / 50) * 50,
+      }))
+    }
+  }, [loading, data, query.offset])
   function reconcile(id: number) {
     focusAfterReload.current = id
     reload()
@@ -194,6 +210,7 @@ export function CapacityGrid({ from, to }: Props) {
       return
     }
     setRangeError('')
+    setCustomDates(false)
     setQuery((current) => ({ ...current, ...range, offset: 0 }))
   }
   function navigate(days: number) {
@@ -231,17 +248,8 @@ export function CapacityGrid({ from, to }: Props) {
     data?.weeks[Math.min(mobileWeek, data.weeks.length - 1)]
   return (
     <section aria-label="Team capacity planning">
-      <div className="page-breadcrumb">
-        <span className="breadcrumb-mark" aria-hidden="true">
-          ▦
-        </span>
-        <span>Workspace</span>
-        <span aria-hidden="true">/</span>
-        <strong>Team planning</strong>
-      </div>
       <div className="workspace-heading">
         <div>
-          <p className="eyebrow">PEOPLE & WORKLOAD</p>
           <h1>
             Team capacity<span className="title-dot">.</span>
           </h1>
@@ -294,13 +302,6 @@ export function CapacityGrid({ from, to }: Props) {
             </div>
             <div className="date-range-title">
               {data ? dateRangeLabel(data.from, data.to) : 'Weekly allocation'}
-              <span>
-                {viewLocked
-                  ? 'Finish your edit to change the view'
-                  : plan.active
-                    ? 'Date range locked while planning'
-                    : 'Monday–Friday · hours per week'}
-              </span>
             </div>
           </div>
           <div className="range-presets" aria-label="Date range presets">
@@ -318,6 +319,16 @@ export function CapacityGrid({ from, to }: Props) {
             ))}
           </div>
           <button
+            className="text-button custom-dates-button"
+            type="button"
+            disabled={dateLocked}
+            aria-expanded={customDates}
+            aria-controls="custom-date-panel"
+            onClick={() => setCustomDates((current) => !current)}
+          >
+            Custom dates
+          </button>
+          <button
             className="text-button reset-button"
             disabled={dateLocked}
             onClick={resetView}
@@ -325,7 +336,54 @@ export function CapacityGrid({ from, to }: Props) {
             Reset view
           </button>
         </div>
-        <div className="filter-toolbar">
+        {customDates && (
+          <div className="custom-date-panel" id="custom-date-panel">
+            {' '}
+            <form className="range-form" onSubmit={applyRange}>
+              <label>
+                From
+                <input
+                  type="date"
+                  value={range.from}
+                  disabled={dateLocked}
+                  required
+                  onChange={(event) =>
+                    setRange((current) => ({
+                      ...current,
+                      from: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <span className="range-dash" aria-hidden="true">
+                →
+              </span>
+              <label>
+                To
+                <input
+                  type="date"
+                  value={range.to}
+                  disabled={dateLocked}
+                  required
+                  onChange={(event) =>
+                    setRange((current) => ({
+                      ...current,
+                      to: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <button
+                className="primary-button"
+                disabled={dateLocked}
+                type="submit"
+              >
+                Apply range
+              </button>
+            </form>
+          </div>
+        )}
+        <div className="priority-controls">
           <form className="people-search" onSubmit={applySearch}>
             <SearchIcon />
             <label className="sr-only" htmlFor="people-search">
@@ -359,50 +417,6 @@ export function CapacityGrid({ from, to }: Props) {
               </button>
             )}
           </form>
-          <form className="range-form" onSubmit={applyRange}>
-            <label>
-              From
-              <input
-                type="date"
-                value={range.from}
-                disabled={dateLocked}
-                required
-                onChange={(event) =>
-                  setRange((current) => ({
-                    ...current,
-                    from: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <span className="range-dash" aria-hidden="true">
-              →
-            </span>
-            <label>
-              To
-              <input
-                type="date"
-                value={range.to}
-                disabled={dateLocked}
-                required
-                onChange={(event) =>
-                  setRange((current) => ({
-                    ...current,
-                    to: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <button
-              className="primary-button"
-              disabled={dateLocked}
-              type="submit"
-            >
-              Apply range
-            </button>
-          </form>
-        </div>
-        <div className="priority-controls">
           <button
             type="button"
             className={`priority-toggle ${query.status === 'over' ? 'active' : ''}`}
@@ -713,13 +727,15 @@ export function CapacityGrid({ from, to }: Props) {
               <SearchIcon />
             </span>
             <h2>
-              {query.status === 'over'
-                ? query.search
-                  ? 'No team members match this view'
-                  : 'Everyone is within capacity'
-                : query.search
-                  ? 'No matching team members'
-                  : 'No people to show'}
+              {data && data.total > 0
+                ? 'Returning to the last page…'
+                : query.status === 'over'
+                  ? query.search
+                    ? 'No team members match this view'
+                    : 'Everyone is within capacity'
+                  : query.search
+                    ? 'No matching team members'
+                    : 'No people to show'}
             </h2>
             <p>
               {query.status === 'over'

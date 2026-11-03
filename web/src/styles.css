@@ -1536,3 +1536,334 @@ tbody tr:last-child th {
     line-height: 1.5;
   }
 }
+
+/* Put the planning work first: concise controls and readable roster data. */
+.app-header {
+  height: 58px;
+}
+main {
+  padding-top: 20px;
+}
+.workspace-heading {
+  margin-bottom: 18px;
+  align-items: center;
+}
+h1 {
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+.intro {
+  font-size: 14px;
+  color: #55485e;
+}
+.heading-tools {
+  gap: 20px;
+}
+.legend {
+  font-size: 12px;
+  color: #51425b;
+}
+.plan-start-button {
+  background: transparent;
+  color: #533169;
+  border-color: #bda9c9;
+  font-size: 13px;
+}
+.plan-start-button:hover:not(:disabled) {
+  color: white;
+}
+.planning-controls {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+.toolbar {
+  padding: 0 0 12px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.date-range-title {
+  font-size: 14px;
+  color: #302537;
+}
+.range-presets {
+  border: 0;
+  background: #eae4ee;
+}
+.range-presets button {
+  font-size: 13px;
+  color: #493353;
+}
+.text-button {
+  font-size: 13px;
+}
+.reset-button {
+  font-size: 12px;
+  color: #66596e;
+}
+.custom-date-panel {
+  padding: 12px 0 16px;
+}
+.range-form label,
+.range-form input {
+  font-size: 13px;
+  color: #493353;
+}
+.primary-button,
+.save-button {
+  font-size: 13px;
+}
+.priority-controls {
+  padding: 11px 0;
+  border-top: 1px solid #dcd3e2;
+  background: transparent;
+  gap: 16px;
+}
+.people-search {
+  height: 38px;
+  width: 300px;
+  background: #fff;
+}
+.people-search input {
+  font-size: 14px;
+}
+.search-button {
+  font-size: 12px;
+}
+.priority-toggle,
+.sort-control,
+.sort-control select {
+  font-size: 13px;
+  color: #493353;
+}
+.priority-scope {
+  display: none;
+}
+.summary-context {
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: #65566f;
+}
+.page-summary {
+  margin: 0 0 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #dcd3e2;
+}
+.page-summary > div {
+  border: 0;
+  padding: 0 20px;
+  gap: 10px;
+}
+.page-summary strong {
+  font-size: 29px;
+  font-weight: 700;
+  color: #35213f;
+}
+.page-summary span {
+  font-size: 13px;
+  color: #493353;
+}
+.page-summary small {
+  display: none;
+}
+.grid-context {
+  padding: 8px 0 10px;
+}
+.grid-title {
+  font-size: 15px;
+}
+.grid-context-note,
+.edit-instruction {
+  font-size: 13px;
+}
+.grid-panel {
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px #e0d7e5;
+}
+.table-scroll {
+  max-height: clamp(380px, calc(100dvh - 405px), 780px);
+}
+thead th {
+  font-size: 13px;
+  height: 58px;
+  color: #493353;
+  background: #eee7f3;
+}
+.person-cell {
+  font-size: 14px;
+}
+.capacity-button {
+  font-size: 14px;
+}
+.capacity-button small,
+.edit-hint {
+  font-size: 11px;
+}
+.week-column strong {
+  font-size: 14px;
+}
+.week-kicker {
+  font-size: 11px;
+}
+.column-detail {
+  font-size: 11px;
+}
+@media (max-width: 900px) {
+  .heading-tools {
+    gap: 8px;
+  }
+  .people-search {
+    width: 260px;
+  }
+  .priority-controls {
+    gap: 10px;
+  }
+  .page-summary > div {
+    padding: 0 10px;
+    gap: 7px;
+  }
+  .page-summary span {
+    font-size: 12px;
+  }
+}
+@media (max-width: 680px) {
+  .app-header {
+    height: 55px;
+  }
+  main {
+    padding: 16px 14px 24px;
+  }
+  .workspace-heading {
+    display: flex;
+    align-items: flex-start;
+    padding-bottom: 0;
+    margin-bottom: 16px;
+    gap: 10px;
+  }
+  h1 {
+    font-size: 28px;
+  }
+  .intro {
+    font-size: 13px;
+    max-width: 230px;
+  }
+  .heading-tools {
+    align-self: center;
+  }
+  .heading-tools .legend {
+    display: none;
+  }
+  .plan-start-button {
+    font-size: 12px;
+    padding: 7px 9px;
+    height: auto;
+  }
+  .toolbar {
+    gap: 10px;
+    padding-bottom: 10px;
+  }
+  .range-navigation {
+    width: 100%;
+    gap: 10px;
+  }
+  .date-range-title {
+    font-size: 13px;
+  }
+  .range-presets {
+    margin-left: 0;
+  }
+  .range-presets button {
+    font-size: 12px;
+    padding: 5px 9px;
+  }
+  .custom-dates-button {
+    margin-left: auto;
+    font-size: 12px;
+  }
+  .reset-button {
+    font-size: 11px;
+    padding: 3px;
+  }
+  .priority-controls {
+    padding: 10px 0;
+    gap: 10px;
+  }
+  .people-search {
+    width: 100%;
+    min-width: 0;
+  }
+  .priority-toggle {
+    font-size: 12px;
+    padding: 6px 8px;
+  }
+  .sort-control {
+    font-size: 12px;
+    margin-left: auto;
+    gap: 5px;
+  }
+  .sort-control select {
+    font-size: 12px;
+    max-width: 130px;
+  }
+  .summary-context {
+    font-size: 11px;
+    margin-top: 8px;
+  }
+  .page-summary {
+    padding: 8px 0;
+    margin-bottom: 6px;
+  }
+  .page-summary > div {
+    display: block;
+    padding: 0 8px;
+  }
+  .page-summary strong {
+    font-size: 24px;
+  }
+  .page-summary span {
+    font-size: 11px;
+    color: #493353;
+  }
+  .grid-context {
+    padding: 8px 0;
+  }
+  .grid-title {
+    font-size: 14px;
+  }
+  .grid-context-note {
+    font-size: 11px;
+  }
+  .edit-instruction {
+    display: none;
+  }
+  .mobile-week-picker {
+    padding: 8px 12px;
+  }
+  .table-scroll {
+    max-height: 565px;
+  }
+  thead th {
+    height: 54px;
+    font-size: 12px;
+  }
+  .person-cell {
+    font-size: 13px;
+  }
+  .person-details-button {
+    font-size: 13px;
+  }
+  .capacity-button {
+    font-size: 14px;
+  }
+  .week-column strong {
+    font-size: 13px;
+  }
+  .range-form {
+    flex-wrap: wrap;
+  }
+  .range-form label {
+    font-size: 12px;
+  }
+}
