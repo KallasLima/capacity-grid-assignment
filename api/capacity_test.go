@@ -203,3 +203,69 @@ func TestCapacitySearchFiltersBeforePaginationAndEscapesWildcards(t *testing.T) 
 		t.Fatalf("empty search: %+v %v", empty, err)
 	}
 }
+
+func TestCapacityPriorityValidation(t *testing.T) {
+	base := url.Values{"from": {"2026-01-05"}, "to": {"2026-01-11"}}
+	selected, err := parseCapacityRange(base)
+	if err != nil || selected.status != "all" || selected.sort != "name" {
+		t.Fatalf("defaults: %+v %v", selected, err)
+	}
+	for _, field := range []string{"status", "sort"} {
+		base.Set(field, "unsupported")
+		if _, err := parseCapacityRange(base); err == nil {
+			t.Fatalf("accepted invalid %s", field)
+		}
+		base.Del(field)
+	}
+}
+
+func TestCapacityPriorityAndSummaryCoverEntireEligibleRoster(t *testing.T) {
+	ctx, tx := testTransaction(t)
+	_, err := tx.Exec(ctx, `
+        CREATE TEMP TABLE people (id int PRIMARY KEY, name text, weekly_hours numeric) ON COMMIT DROP;
+        CREATE TEMP TABLE assignments (id int PRIMARY KEY, person_id int, start_date date, end_date date, hours_per_day numeric) ON COMMIT DROP;
+        INSERT INTO people VALUES (1,'Ana',40),(2,'Bo',20),(3,'Cy',0),(4,'Dee',40),(5,'Eve',20),(6,'Zoe',20);
+        INSERT INTO assignments VALUES
+          (1,1,'2026-01-05','2026-01-09',2),
+          (2,2,'2026-01-05','2026-01-09',10),
+          (3,2,'2026-01-12','2026-01-12',1),
+          (4,3,'2026-01-10','2026-01-11',100),
+          (5,4,'2026-01-05','2026-01-09',9),
+          (6,5,'2026-01-12','2026-01-16',12),
+          (7,6,'2026-01-05','2026-01-09',4),
+          (8,6,'2026-01-05','2026-01-09',4);
+    `)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := parseCapacityRange(url.Values{"from": {"2026-01-05"}, "to": {"2026-01-18"}, "limit": {"1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := loadCapacity(ctx, tx, selected)
+	if err != nil || all.Total != 6 || len(all.People) != 1 || all.People[0].ID != 1 ||
+		all.Summary.People != 6 || all.Summary.OverCapacityPeople != 4 || all.Summary.AllocatedHours != 206 || all.Summary.AvailableHours != 169 {
+		t.Fatalf("global summary beyond page: %+v %v", all, err)
+	}
+	selected.status, selected.sort, selected.limit, selected.offset = "over", "overload", 2, 1
+	over, err := loadCapacity(ctx, tx, selected)
+	if err != nil || over.Total != 4 || len(over.People) != 2 || over.People[0].ID != 2 || over.People[1].ID != 6 ||
+		over.Summary.People != 4 || over.Summary.OverCapacityPeople != 4 || over.Summary.AllocatedHours != 196 || over.Summary.AvailableHours != 99 {
+		t.Fatalf("global status/order before page: %+v %v", over, err)
+	}
+	selected.search, selected.offset = "o", 0
+	searched, err := loadCapacity(ctx, tx, selected)
+	if err != nil || searched.Total != 2 || searched.Summary.AllocatedHours != 91 || searched.Summary.AvailableHours != 39 {
+		t.Fatalf("searched eligible summary: %+v %v", searched, err)
+	}
+	selected.offset = 99
+	emptyPage, err := loadCapacity(ctx, tx, selected)
+	if err != nil || emptyPage.Total != 2 || len(emptyPage.People) != 0 || emptyPage.People == nil || emptyPage.Summary.AllocatedHours != 91 {
+		t.Fatalf("empty page retains summary: %+v %v", emptyPage, err)
+	}
+	selected.search = "missing"
+	empty, err := loadCapacity(ctx, tx, selected)
+	if err != nil || empty.Total != 0 || empty.People == nil || empty.Summary != (capacitySummary{}) {
+		t.Fatalf("empty eligible roster: %+v %v", empty, err)
+	}
+}
