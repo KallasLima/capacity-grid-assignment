@@ -106,10 +106,13 @@ much easier when the notes are honest about what you didn't get to.
 
 ## Implemented behavior
 
-The capacity view now includes week navigation, an applied date range, roster pagination,
-inline weekly-capacity editing, loading and retry states, and confirmed-save feedback.
-The initial range is December 29, 2025 through January 16, 2026; its three complete weeks
-are displayed. Capacity changes apply to every week for that person.
+The capacity view includes week navigation, date-range selection, roster search and
+pagination, inline weekly-capacity editing, project breakdowns, and loading and recovery
+states. Search
+finds people across the roster rather than only the visible page. Capacity changes
+apply to every week for that person.
+The initial six-week view runs from December 29, 2025 through February 8, 2026.
+Range presets cover 3, 6, or 12 weeks; the mobile view keeps one selected week readable.
 
 `GET /api/capacity?from=2025-12-29&to=2026-01-16&offset=0&limit=50` returns normalized
 `from`/`to` dates, `weeks` with `start`/`end`, and `people` with `id`, `name`,
@@ -117,11 +120,40 @@ are displayed. Capacity changes apply to every week for that person.
 describe the roster page. People with no assignments remain visible. The maximum range
 is 106 weeks and the maximum page is 100 people; the UI requests 50 at a time.
 
-`PATCH /api/people/{id}` accepts `{"weeklyHours":32}` and returns the saved person's
-`id`, `name`, and `weeklyHours`. Valid capacity is 0–168 hours, with at most two decimal
-places. Invalid input returns 400, a missing person returns 404, and oversized bodies
-return 413. Allocation sums all overlapping assignment records on weekdays, including
+Add `search=Dee` to filter names using a case-insensitive substring. Search is trimmed,
+accepts up to 100 Unicode characters, and treats `%`, `_`, and `\` as literal characters.
+Filtering happens before pagination, and `total` reports the matching roster count.
+
+`PATCH /api/people/{id}` requires both values:
+
+```json
+{"weeklyHours":32,"expectedWeeklyHours":40}
+```
+
+The update atomically checks that stored capacity still equals `expectedWeeklyHours`,
+then returns the canonical `id`, `name`, and `weeklyHours`. Both values must be 0–168
+hours with at most two decimal places. If the capacity changed, HTTP 409 returns
+`{"error":"...","person":{"id":4,"name":"Dee Okafor","weeklyHours":50}}`.
+The editor retains the draft, shows the latest value, and requires an explicit
+**Save my draft** action to apply it against that value. A retry whose requested value
+is already stored returns 200, allowing confirmation after a lost response.
+
+Invalid input returns 400, a missing person returns 404, and oversized bodies return
+413. Allocation sums all overlapping assignment records on weekdays, including
 distinct records with identical values. See [DECISIONS.md](DECISIONS.md) for the choices.
+
+### Allocation breakdown
+
+Click a team member's name to open their project breakdown, then move between weeks
+inside the drawer. `GET /api/people/4/allocations?week=2026-01-05` returns `person`,
+a normalized Monday–Sunday `week`, total `allocatedHours`, and `projects` with `id`,
+`name`, `hours`, and `assignmentCount`. This read-only view uses the same weekday and
+additive-row rules as the grid. Invalid IDs or dates return 400; a missing person returns
+404.
+
+For Dee in the week of January 5, the total is 45 hours: Atlas contributes 30 hours
+from 15 assignment rows, and Corvus contributes 15 hours from 15 rows. Compare that sum
+with the grid, then change weeks and close the drawer to return to the same person.
 
 ### Checks
 
@@ -139,9 +171,20 @@ January 5, 2026: Bo is 32/40 hours, Cem 4/20, Dee 45/40, and Eli 20/0. Edit a ca
 check every displayed week, then reload to verify persistence. A failed save should
 retain the typed value and allow retry.
 
+To check a conflict, open the same person in two browser tabs. Save a change in the
+first, then submit a different draft from the second. The second tab should show the
+new server value without overwriting it and retain its draft for **Save my draft**
+or Cancel.
+
 Cancel or Escape after an unsuccessful save reloads current server values, including
 when the write committed but its response was lost. If reconciliation fails, the grid
 is replaced by a retry state. Keyboard focus returns to the edited person after recovery.
+
+An isolated synthetic validation used 3,000 people and 757,170 assignments in
+resource-limited containers. It traversed all roster pages, checked two-year results
+against independent arithmetic, and rendered a 50-person, 105-week browser view.
+The data repeats seed patterns; these were local sequential checks rather than a
+production load test. The original preview retained its 500 people and 126,195 assignments.
 
 Vite is patched to 8.2.4. The original Compose, Dockerfile, Makefile, schema, and seed
 are unchanged. For local-only access, use a separate uncommitted Compose override that

@@ -2,18 +2,19 @@
 
 ## What did the spec not tell you?
 
-- Weeks start on Monday; the selected dates include their complete weeks. Assignment dates are inclusive, and allocation counts Monday–Friday with no holiday calendar. Weekly capacity is recurring across every week because the fixed schema has one value per person.
-- The API pages the roster before aggregating overlapping assignments: 50 people by default, at most 100, across at most 106 weeks. This bounds both query work and rendered cells without loading the whole organization into the browser.
-- Saves are confirmed, then the canonical returned capacity updates every visible dependent number. Failed saves retain the draft; cancelling an unsuccessful attempt reloads current server values because the write may have committed before its response was lost. Obsolete range requests are cancelled and ignored; a late response cannot restore capacity from before a confirmed edit. A later fresh request remains authoritative.
+- Weeks start on Monday and include the selected dates' complete weeks. Assignment dates are inclusive; allocation counts weekdays without holidays. Capacity recurs across every week because the fixed schema stores one value per person.
+- Literal, case-insensitive name search filters the roster before stable pagination and aggregation: 50 people by default, at most 100, across at most 106 weeks. Query and rendering work stay bounded.
+- Saves compare the opened capacity with the stored value. Conflicts return the latest value and retain the draft for an explicit decision. Confirmed saves update every visible week. Failed saves retain drafts; Cancel/Escape reload current values. Obsolete requests cannot replace newer selections or edits.
 
 ## What did you notice that looked wrong?
 
-- The seed has small fractional daily values and many equal-looking assignments with distinct IDs. Summing all supplied rows matters: for January 5, Dee has 45 allocated hours against 40 capacity. Eli has 20 against zero; that is an overload, not an infinite percentage. The fixed input is preserved.
+- Fractional daily values and equal-looking assignments with distinct IDs require summing every supplied row. For January 5, Dee has 45 allocated hours against 40 capacity; Eli has 20 against zero, an overload handled without division by zero. The input is preserved.
 
 ## What did the AI get wrong that you caught?
 
-- The first editing flow treated a failed request as an unchanged server value. Review exposed the case where a write commits but its response is lost: Cancel hid the error while leaving old numbers. Cancel and Escape now reconcile with the server; delayed-response and real dropped-response checks cover that recovery.
+- The first editing flow assumed a failed request left the server unchanged. A write can commit before its response is lost: Cancel hid the error while retaining old numbers. Cancel/Escape now reconcile with the server, covered by delayed-response and real dropped-response checks.
 
 ## What would you do differently with a week?
 
-- Extend keyboard and screen-reader testing, measure wide-range rendering with larger rosters, and add concurrency protection for two managers editing the same person. Confirm holiday and historical-capacity requirements before adding those models. The present scalar capacity deliberately applies to past and future weeks.
+- Turn this slice into a collaborative scenario planner: create alternative staffing plans, compare delivery risk and cost, and publish or undo an agreed plan. Add explainable allocation suggestions constrained by skills, priorities, deadlines, and availability.
+- Connect live shared editing, historical capacity, and PTO calendars to validated domain models. Prove scenario publishing and rollback under multi-manager failures, accessible interaction, and concurrent workloads across thousands of people. The current scalar capacity deliberately applies to past and future weeks.
