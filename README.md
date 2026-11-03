@@ -103,3 +103,43 @@ We spend about ten minutes per submission, on:
 Then we talk about it for an hour, live, and extend it together. Come ready to explain
 what you decided and why — that conversation is the real point of this exercise, and it's
 much easier when the notes are honest about what you didn't get to.
+
+## Implemented behavior
+
+The capacity view now includes week navigation, an applied date range, roster pagination,
+inline weekly-capacity editing, loading and retry states, and confirmed-save feedback.
+The initial range is December 29, 2025 through January 16, 2026; its three complete weeks
+are displayed. Capacity changes apply to every week for that person.
+
+`GET /api/capacity?from=2025-12-29&to=2026-01-16&offset=0&limit=50` returns normalized
+`from`/`to` dates, `weeks` with `start`/`end`, and `people` with `id`, `name`,
+`weeklyHours`, and an aligned `allocatedHours` array. `total`, `offset`, and `limit`
+describe the roster page. People with no assignments remain visible. The maximum range
+is 106 weeks and the maximum page is 100 people; the UI requests 50 at a time.
+
+`PATCH /api/people/{id}` accepts `{"weeklyHours":32}` and returns the saved person's
+`id`, `name`, and `weeklyHours`. Valid capacity is 0–168 hours, with at most two decimal
+places. Invalid input returns 400, a missing person returns 404, and oversized bodies
+return 413. Allocation sums all overlapping assignment records on weekdays, including
+distinct records with identical values. See [DECISIONS.md](DECISIONS.md) for the choices.
+
+### Checks
+
+With the application running through `make up`, run:
+
+```bash
+docker compose exec -T api go test -v ./...
+docker compose exec -T web npm test
+docker compose exec -T web npm run build
+```
+
+The Go query tests use temporary PostgreSQL tables inside a rolled-back transaction.
+They do not alter the seeded roster. To inspect the grid's numbers, use the week of
+January 5, 2026: Bo is 32/40 hours, Cem 4/20, Dee 45/40, and Eli 20/0. Edit a capacity,
+check every displayed week, then reload to verify persistence. A failed save should
+retain the typed value and allow retry.
+
+Vite is patched to 8.2.4. The original Compose, Dockerfile, Makefile, schema, and seed
+are unchanged. For local-only access, use a separate uncommitted Compose override that
+replaces published ports with loopback bindings. No authentication is included in this
+local assignment scaffold.
