@@ -43,6 +43,7 @@ export function CapacityGrid({ from, to }: Props) {
   const [search, setSearch] = useState('')
   const [rangeError, setRangeError] = useState('')
   const [customDates, setCustomDates] = useState(false)
+  const customDateTrigger = useRef<HTMLButtonElement>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [mobileWeek, setMobileWeek] = useState(0)
   const [details, setDetails] = useState<{
@@ -210,6 +211,7 @@ export function CapacityGrid({ from, to }: Props) {
       return
     }
     setRangeError('')
+    customDateTrigger.current?.focus()
     setCustomDates(false)
     setQuery((current) => ({ ...current, ...range, offset: 0 }))
   }
@@ -319,6 +321,7 @@ export function CapacityGrid({ from, to }: Props) {
             ))}
           </div>
           <button
+            ref={customDateTrigger}
             className="text-button custom-dates-button"
             type="button"
             disabled={dateLocked}
@@ -738,7 +741,9 @@ export function CapacityGrid({ from, to }: Props) {
                     : 'No people to show'}
             </h2>
             <p>
-              {query.status === 'over'
+              {data && data.total > 0
+                ? 'The matching roster changed. Loading its last available page.'
+                : query.status === 'over'
                 ? query.search
                   ? `No people matching “${query.search}” are over capacity in this range.`
                   : 'No one is over capacity in the selected date range.'
