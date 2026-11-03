@@ -50,6 +50,92 @@ function backup(uncertain = false): SavedPlan {
 }
 
 describe('explicit draft recovery', () => {
+  it('rejects a prompt that expires before Restore without reading or touching a newer backup', async () => {
+    const source = backup()
+    localStorage.setItem(PLAN_PREFIX + source.id, JSON.stringify(source))
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    const onRestoreQuery = vi.fn()
+    const hook = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onRestoreQuery,
+        onApplied: vi.fn(),
+        onReconcile: vi.fn(),
+      }),
+    )
+    expect(hook.result.current.recovery?.revision).toBe(source.revision)
+
+    vi.spyOn(Date, 'now').mockReturnValue(source.expiresAt)
+    const newer = {
+      ...source,
+      revision: 'newer-revision',
+      savedAt: source.expiresAt,
+      expiresAt: source.expiresAt + PLAN_TTL,
+    }
+    localStorage.setItem(PLAN_PREFIX + source.id, JSON.stringify(newer))
+    await act(async () => hook.result.current.restore())
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onRestoreQuery).not.toHaveBeenCalled()
+    expect(hook.result.current.active).toBe(false)
+    expect(hook.result.current.drafts).toEqual([])
+    expect(hook.result.current.recovery).toBeNull()
+    expect(hook.result.current.recoveryError).toMatch(/saved draft expired/)
+    expect(hook.result.current.restoring).toBe(false)
+    expect(localStorage.length).toBe(1)
+    expect(localStorage.getItem(PLAN_PREFIX + source.id)).toBe(
+      JSON.stringify(newer),
+    )
+    expect(readRecovery().plan?.revision).toBe(newer.revision)
+  })
+
+  it('rejects expiry during canonical reads without publishing a query or active fork', async () => {
+    const source = backup()
+    localStorage.setItem(PLAN_PREFIX + source.id, JSON.stringify(source))
+    let finish!: (response: Response) => void
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValue(
+      new Promise<Response>((resolve) => {
+        finish = resolve
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const onRestoreQuery = vi.fn()
+    const onApplied = vi.fn()
+    const hook = renderHook(() =>
+      useCapacityPlan({
+        query: savedQuery,
+        onRestoreQuery,
+        onApplied,
+        onReconcile: vi.fn(),
+      }),
+    )
+    let restoring!: Promise<void>
+    act(() => {
+      restoring = hook.result.current.restore()
+    })
+    expect(hook.result.current.restoring).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    vi.spyOn(Date, 'now').mockReturnValue(source.expiresAt)
+    await act(async () => {
+      finish(json({ person: { id: ana.id, name: ana.name, weeklyHours: 40 } }))
+      await restoring
+    })
+
+    expect(onRestoreQuery).not.toHaveBeenCalled()
+    expect(onApplied).not.toHaveBeenCalled()
+    expect(hook.result.current.active).toBe(false)
+    expect(hook.result.current.drafts).toEqual([])
+    expect(hook.result.current.recovery).toBeNull()
+    expect(hook.result.current.recoveryError).toMatch(/saved draft expired/)
+    expect(hook.result.current.restoring).toBe(false)
+    expect(localStorage.length).toBe(1)
+    expect(localStorage.getItem(PLAN_PREFIX + source.id)).toBe(
+      JSON.stringify(source),
+    )
+  })
+
   it('keeps recovery available when saving its fork fails, while the in-memory draft remains usable', async () => {
     const source = backup()
     localStorage.setItem(PLAN_PREFIX + source.id, JSON.stringify(source))

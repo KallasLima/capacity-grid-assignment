@@ -266,6 +266,22 @@ export function useCapacityPlan(options: Options) {
       restoringRef.current
     )
       return
+
+    // A displayed recovery prompt can outlive its backup. Recheck at the action
+    // boundary and after reads; never renew an expired proposal by forking it.
+    const expired = () => {
+      if (Date.now() < saved.expiresAt) return false
+      if (recoveryRef.current === saved) {
+        recoveryRef.current = null
+        setRecovery(null)
+        setRecoveryError(
+          'This saved draft expired. Reload to check for a newer backup, or start a new plan.',
+        )
+      }
+      return true
+    }
+    if (expired()) return
+
     const sequence = ++restoreVersion.current
     restoringRef.current = true
     setRestoring(true)
@@ -297,6 +313,7 @@ export function useCapacityPlan(options: Options) {
         for (const person of people) current.set(person.id, person)
       }
       if (!mounted.current || sequence !== restoreVersion.current) return
+      if (expired()) return
 
       let changed = saved.reviewedConflict
       const restored = saved.uncertain

@@ -95,7 +95,7 @@ docker compose exec -T web npm test
 docker compose exec -T web npm run build
 ```
 
-The suites contain **17 Go tests and 47 frontend tests**. PostgreSQL fixtures run
+The suites contain **17 Go tests and 49 frontend tests**. PostgreSQL fixtures run
 inside rolled-back transactions. Frontend tests cover drafts, recovery, conflicts, and obsolete
 responses. Browser checks cover persistence, failures, lost responses, keyboard
 recovery, mobile navigation, and scenarios.

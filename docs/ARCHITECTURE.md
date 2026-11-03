@@ -84,7 +84,8 @@ Closing refreshes canonical data.
 
 The hook also backs up nonempty drafts through `planStorage.ts`. Versioned local-storage
 records validate the full query and draft payload, expire 24 hours after their last
-save, and use separate IDs for independent plans. They contain no server-side draft
+save, and use separate IDs for independent plans. Expiry is checked again when Restore
+starts and after its capacity reads finish. They contain no server-side draft
 or shared-editing model.
 
 Recovery is an explicit UI choice. Before restoring, the hook reads canonical
