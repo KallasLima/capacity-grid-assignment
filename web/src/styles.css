@@ -251,7 +251,10 @@ h1 {
   box-shadow: 0 3px 12px #352c3b03;
 }
 .table-scroll {
+  --person-column-width: 245px;
   overflow: auto;
+  scroll-padding-inline-start: calc(var(--person-column-width) + 12px);
+  scroll-padding-inline-end: 12px;
   max-height: clamp(280px, calc(100dvh - 490px), 650px);
   scrollbar-color: #c9bed0 #faf8fb;
   scrollbar-width: thin;
@@ -282,7 +285,7 @@ thead th {
   border-bottom: 1px solid #e4dde9;
 }
 th.person-column {
-  width: 245px;
+  width: var(--person-column-width);
   position: sticky;
   left: 0;
   z-index: 1;
@@ -488,6 +491,9 @@ tbody tr:last-child th {
   color: #817187;
   margin-top: 2px;
 }
+.scroll-cue {
+  display: none;
+}
 .capacity-editor input {
   width: 100%;
   height: 31px;
@@ -643,8 +649,8 @@ tbody tr:last-child th {
   .intro {
     max-width: 340px;
   }
-  th.person-column {
-    width: 205px;
+  .table-scroll {
+    --person-column-width: 205px;
   }
   .capacity-column {
     width: 160px;
@@ -731,10 +737,14 @@ tbody tr:last-child th {
     border-radius: 8px;
   }
   .table-scroll {
+    --person-column-width: 166px;
     max-height: 560px;
   }
-  th.person-column {
-    width: 166px;
+  .scroll-cue {
+    display: block;
+    color: #76617f;
+    font-size: 11px;
+    margin-bottom: 9px;
   }
   .capacity-column {
     width: 155px;

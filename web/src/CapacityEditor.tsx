@@ -6,20 +6,28 @@ export function CapacityEditor({
   busy,
   save,
   onEditing,
+  onReconcile,
 }: {
   person: Person
   busy: boolean
   save: (id: number, hours: number) => Promise<void>
   onEditing: (id: number | null) => void
+  onReconcile: (id: number) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   const editButton = useRef<HTMLButtonElement>(null)
+  const unsuccessfulSave = useRef(false)
   function close() {
     setEditing(false)
     onEditing(null)
+    if (unsuccessfulSave.current) {
+      unsuccessfulSave.current = false
+      onReconcile(person.id)
+      return
+    }
     requestAnimationFrame(() => editButton.current?.focus())
   }
   async function submit(event: FormEvent) {
@@ -32,9 +40,12 @@ export function CapacityEditor({
     setError('')
     try {
       await save(person.id, value)
+      unsuccessfulSave.current = false
       close()
       setSaved(true)
     } catch (failure) {
+      // A transport failure can happen after the server commits the update.
+      unsuccessfulSave.current = true
       setError(
         failure instanceof Error
           ? failure.message
@@ -47,6 +58,7 @@ export function CapacityEditor({
       <div className="capacity-control">
         <button
           ref={editButton}
+          data-person-id={person.id}
           className="capacity-button"
           disabled={busy}
           aria-label={`Edit weekly capacity for ${person.name}`}
@@ -56,6 +68,7 @@ export function CapacityEditor({
             onEditing(person.id)
             setSaved(false)
             setError('')
+            unsuccessfulSave.current = false
           }}
         >
           <span>

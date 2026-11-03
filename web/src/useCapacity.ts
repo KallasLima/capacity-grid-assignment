@@ -115,7 +115,11 @@ export function useCapacity(query: Query) {
     } catch (error) {
       if (controller.signal.aborted)
         throw new Error(
-          'Save timed out. Your draft is kept; retry to confirm this capacity.',
+          'Save timed out. Your draft is kept; retry, or cancel to reload current capacity.',
+        )
+      if (error instanceof TypeError)
+        throw new Error(
+          'Save was not confirmed. Your draft is kept; retry, or cancel to reload current capacity.',
         )
       throw error
     } finally {
@@ -124,12 +128,23 @@ export function useCapacity(query: Query) {
     }
   }, [])
 
+  const reload = useCallback(() => {
+    // Clear stale values synchronously, including after an uncertain write.
+    setSnapshot((current) => ({
+      ...current,
+      data: null,
+      loading: true,
+      error: null,
+    }))
+    setRevision((value) => value + 1)
+  }, [])
+
   return {
     data: snapshot.key === key ? snapshot.data : null,
     loading: snapshot.key !== key || snapshot.loading,
     error: snapshot.key === key ? snapshot.error : null,
     savingId,
     savePerson,
-    reload: () => setRevision((value) => value + 1),
+    reload,
   }
 }

@@ -1,4 +1,10 @@
-import { useState, type CSSProperties, type FormEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from 'react'
 import { dateLabel, hours, shiftDate, type Query } from './capacity'
 import { useCapacity } from './useCapacity'
 import { CapacityEditor } from './CapacityEditor'
@@ -13,6 +19,27 @@ export function CapacityGrid({ from, to }: Props) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const { data, loading, error, savingId, savePerson, reload } =
     useCapacity(query)
+  const gridPanel = useRef<HTMLDivElement>(null)
+  const retryButton = useRef<HTMLButtonElement>(null)
+  const focusAfterReload = useRef<number | null>(null)
+  useEffect(() => {
+    if (focusAfterReload.current === null || loading) return
+    if (error) {
+      retryButton.current?.focus()
+      return
+    }
+    const button = gridPanel.current?.querySelector<HTMLButtonElement>(
+      `button[data-person-id="${focusAfterReload.current}"]`,
+    )
+    if (button) {
+      button.focus()
+      focusAfterReload.current = null
+    }
+  }, [data, loading, error])
+  function reconcile(id: number) {
+    focusAfterReload.current = id
+    reload()
+  }
   const busy = savingId !== null
   const viewLocked = busy || editingId !== null
   const overCount =
@@ -148,7 +175,8 @@ export function CapacityGrid({ from, to }: Props) {
               : 'Capacity unavailable'}
         </span>
       </div>
-      <div className="grid-panel" aria-busy={loading}>
+      <p className="scroll-cue">Swipe across the grid to see each week.</p>
+      <div ref={gridPanel} className="grid-panel" aria-busy={loading}>
         {loading ? (
           <div className="grid-loading" role="status">
             <span className="loading-dot" />
@@ -164,7 +192,11 @@ export function CapacityGrid({ from, to }: Props) {
             <span className="state-icon">!</span>
             <h2>Capacity couldn’t be loaded</h2>
             <p>{error}</p>
-            <button className="primary-button" onClick={reload}>
+            <button
+              ref={retryButton}
+              className="primary-button"
+              onClick={reload}
+            >
               Try again
             </button>
           </div>
@@ -225,6 +257,7 @@ export function CapacityGrid({ from, to }: Props) {
                         }
                         save={savePerson}
                         onEditing={setEditingId}
+                        onReconcile={reconcile}
                       />
                     </td>
                     {data.weeks.map((week, index) => (

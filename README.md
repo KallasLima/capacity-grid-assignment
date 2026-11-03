@@ -139,6 +139,10 @@ January 5, 2026: Bo is 32/40 hours, Cem 4/20, Dee 45/40, and Eli 20/0. Edit a ca
 check every displayed week, then reload to verify persistence. A failed save should
 retain the typed value and allow retry.
 
+Cancel or Escape after an unsuccessful save reloads current server values, including
+when the write committed but its response was lost. If reconciliation fails, the grid
+is replaced by a retry state. Keyboard focus returns to the edited person after recovery.
+
 Vite is patched to 8.2.4. The original Compose, Dockerfile, Makefile, schema, and seed
 are unchanged. For local-only access, use a separate uncommitted Compose override that
 replaces published ports with loopback bindings. No authentication is included in this

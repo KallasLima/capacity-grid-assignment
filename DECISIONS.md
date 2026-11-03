@@ -4,7 +4,7 @@
 
 - Weeks start on Monday; the selected dates include their complete weeks. Assignment dates are inclusive, and allocation counts Monday–Friday with no holiday calendar. Weekly capacity is recurring across every week because the fixed schema has one value per person.
 - The API pages the roster before aggregating overlapping assignments: 50 people by default, at most 100, across at most 106 weeks. This bounds both query work and rendered cells without loading the whole organization into the browser.
-- Saves are confirmed, then the canonical returned capacity updates every visible dependent number. Failed saves retain the draft. Obsolete range requests are cancelled and ignored; a late response cannot restore capacity from before a confirmed edit. A later fresh request remains authoritative.
+- Saves are confirmed, then the canonical returned capacity updates every visible dependent number. Failed saves retain the draft; cancelling an unsuccessful attempt reloads current server values because the write may have committed before its response was lost. Obsolete range requests are cancelled and ignored; a late response cannot restore capacity from before a confirmed edit. A later fresh request remains authoritative.
 
 ## What did you notice that looked wrong?
 
@@ -12,7 +12,7 @@
 
 ## What did the AI get wrong that you caught?
 
-- The first dependency update churned unrelated platform metadata in the lockfile. Diff review caught it, the original entries were retained, and the security update was narrowed to Vite and its matching lock record.
+- The first editing flow treated a failed request as an unchanged server value. Review exposed the case where a write commits but its response is lost: Cancel hid the error while leaving old numbers. Cancel and Escape now reconcile with the server; delayed-response and real dropped-response checks cover that recovery.
 
 ## What would you do differently with a week?
 
